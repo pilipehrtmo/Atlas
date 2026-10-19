@@ -1,0 +1,78 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app.js';
+import { loadConfig } from '../src/config.js';
+import { openDb } from '../src/db.js';
+import { DataService } from '../src/providers/service.js';
+
+describe('API in demo mode', () => {
+  const config = loadConfig({ ATLAS_DATA_MODE: 'demo' });
+  const app = buildApp(config, openDb(':memory:'), DataService.fromConfig(config));
+  beforeAll(() => app.ready());
+  afterAll(() => app.close());
+  const get = async (url: string) => (await app.inject({ url })).json();
+
+  it('labels every quote as synthetic', async () => {
+    const q = await get('/api/security/NOVA/quote');
+    expect(q.status).toBe('ok');
+    expect(q.provenance.timeliness).toBe('synthetic');
+    expect(q.data.price).toMatch(/^\d+\.\d{2}$/);
+  });
+  it('refuses real tickers in demo mode instead of inventing prices', async () => {
+    const q = await get('/api/security/AAPL/quote');
+    expect(q.status).toBe('unavailable');
+  });
+  it('never fabricates filings or news', async () => {
+    expect((await get('/api/security/NOVA/filings')).status).toBe('unavailable');
+    expect((await get('/api/news')).status).toBe('unavailable');
+  });
+  it('seeds and persists watchlists', async () => {
+    const lists = await get('/api/watchlists');
+    expect(lists[0].symbols).toContain('NOVA');
+    await app.inject({ method: 'POST', url: `/api/watchlists/${lists[0].id}/items`, payload: { symbol: 'brkv' } });
+    expect((await get('/api/watchlists'))[0].symbols).toContain('BRKV');
+  });
+  it('values the seeded portfolio with FX conversion for EUR holdings', async () => {
+    const [pf] = await get('/api/portfolios');
+    const r = await get(`/api/portfolios/${pf.id}`);
+    expect(r.valuation.missing).toEqual([]);
+    expect(r.valuation.totalValue).not.toBeNull();
+    expect(Number(r.fxToBase.EUR)).toBeGreaterThan(0.5);
+    expect(r.ledger.positions.find((p: { symbol: string }) => p.symbol === 'NOVA').quantity).toBe('100');
+  });
+  it('rejects a sell that exceeds the position', async () => {
+    const [pf] = await get('/api/portfolios');
+    const res = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/transactions`, payload: { date: '2026-01-05', type: 'SELL', symbol: 'NOVA', quantity: '1000', price: '100', currency: 'USD' } });
+    expect(res.statusCode).toBe(422);
+  });
+  it('validates transaction fields', async () => {
+    const [pf] = await get('/api/portfolios');
+    const res = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/transactions`, payload: { date: '2026-01-05', type: 'BUY', symbol: 'NOVA', currency: 'USD' } });
+    expect(res.statusCode).toBe(400);
+  });
+  it('returns the evidence pack without AI when no key is set', async () => {
+    const r = (await app.inject({ method: 'POST', url: '/api/research', payload: { question: 'What are the key risks?', symbol: 'NOVA' } })).json();
+    expect(r.status).toBe('no-ai');
+    expect(r.sources.length).toBeGreaterThan(0);
+    expect(r.segments).toEqual([]);
+  });
+  it('computes screener metrics with definitions', async () => {
+    const s = await get('/api/screener/universe');
+    expect(s.status).toBe('ok');
+    expect(s.rows.length).toBe(16);
+    expect(s.definitions.pe).toBeTruthy();
+  });
+});
+
+describe('live mode routing', () => {
+  it('reports missing keys as unavailable and never falls back to demo data', async () => {
+    const config = loadConfig({ ATLAS_DATA_MODE: 'live' });
+    const app = buildApp(config, openDb(':memory:'), DataService.fromConfig(config));
+    const q = (await app.inject({ url: '/api/security/AAPL/quote' })).json();
+    expect(q.status).toBe('unavailable');
+    expect(q.reason).toMatch(/ALPHAVANTAGE_API_KEY/);
+    const m = (await app.inject({ url: '/api/macro/CPIAUCSL' })).json();
+    expect(m.reason).toMatch(/FRED_API_KEY/);
+    expect((await app.inject({ url: '/api/watchlists' })).json()).toEqual([]);
+    await app.close();
+  });
+});
