@@ -114,3 +114,45 @@ describe('fetchText errors', () => {
     await expect(fetchText('https://example.test', { provider: 'SEC EDGAR', fetchImpl, retries: 0 })).rejects.toThrow('SEC EDGAR responded 403: SEC.gov | Your Request Originates from an Undeclared Automated Tool');
   });
 });
+
+describe('Tiingo', () => {
+  const rows = [
+    { date: '2026-10-16T00:00:00.000Z', open: 250, high: 252, low: 248, close: 251.5, volume: 4_000_000 },
+    { date: '2026-10-19T00:00:00.000Z', open: 251, high: 256, low: 250, close: 255, volume: 5_000_000 },
+    { date: 'bad', open: 1, high: 1, low: 1, close: 1, volume: 1 },
+  ];
+  it('parses daily bars and derives an end-of-day quote', async () => {
+    const { parseTiingoBars, quoteFromBars } = await import('../src/providers/tiingo.js');
+    const bars = parseTiingoBars(rows);
+    expect(bars.map((b) => b.date)).toEqual(['2026-10-16', '2026-10-19']);
+    const q = quoteFromBars('aapl', bars)!;
+    expect(q.price).toBe('255');
+    expect(q.previousClose).toBe('251.5');
+    expect(q.changePercent).toBe('1.39');
+    expect(q.sessionDate).toBe('2026-10-19');
+  });
+  it('maps share classes and filters search results to US stocks and ETFs', async () => {
+    const { parseTiingoSearch, tiingoTicker } = await import('../src/providers/tiingo.js');
+    expect(tiingoTicker('brk.b')).toBe('BRK-B');
+    expect(parseTiingoSearch([
+      { ticker: 'brk-b', name: 'Berkshire Hathaway', assetType: 'Stock', countryCode: 'US', isActive: true },
+      { ticker: 'VOO', name: 'Vanguard S&P 500 ETF', assetType: 'ETF', countryCode: 'US', isActive: true },
+      { ticker: 'XYZ', name: 'Delisted', assetType: 'Stock', countryCode: 'US', isActive: false },
+      { ticker: 'BHP', name: 'Foreign', assetType: 'Stock', countryCode: 'AU', isActive: true },
+    ])).toEqual([{ symbol: 'BRK.B', name: 'Berkshire Hathaway' }, { symbol: 'VOO', name: 'Vanguard S&P 500 ETF' }]);
+  });
+  it('labels quotes end-of-day, sends the key as a header, and reports a bad key', async () => {
+    const { TiingoProvider } = await import('../src/providers/tiingo.js');
+    let auth = '';
+    const ok = (async (_u: string, init?: RequestInit) => { auth = (init?.headers as Record<string, string>).Authorization; return new Response(JSON.stringify(rows), { status: 200 }); }) as unknown as typeof fetch;
+    const r = await new TiingoProvider('k123', 1000, ok).quote('AAPL');
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') expect(r.provenance.timeliness).toBe('eod');
+    expect(auth).toBe('Token k123');
+    const denied = (async () => new Response('{"detail":"Invalid token."}', { status: 401 })) as unknown as typeof fetch;
+    const d = await new TiingoProvider('bad', 1000, denied).quote('AAPL');
+    expect(d.status === 'unavailable' && d.reason).toMatch(/rejected the API key/);
+    const none = await new TiingoProvider(undefined).quote('AAPL');
+    expect(none.status === 'unavailable' && none.reason).toMatch(/TIINGO_API_KEY/);
+  });
+});
