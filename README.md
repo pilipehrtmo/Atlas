@@ -52,6 +52,7 @@ a command runs in. Full syntax: [docs/COMMANDS.md](docs/COMMANDS.md).
 - [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md): provider assessment, licensing, costs, what is integrated
 - [docs/CALCULATIONS.md](docs/CALCULATIONS.md): cost basis, returns, ratios, missing-data rules
 - [docs/COMMANDS.md](docs/COMMANDS.md): command language and shortcuts
+- [docs/DEPLOY.md](docs/DEPLOY.md): run Atlas 24/7 on a free cloud server with HTTPS and a sign-in
 - [docs/TODO.md](docs/TODO.md): status and roadmap
 
 Information only. Not investment advice. Atlas does not connect to brokers or place trades.
