@@ -146,7 +146,7 @@ function PortfolioDetailView({ id }: { id: number }) {
         </Section>
       )}
       <TransactionForm portfolioId={id} baseCurrency={base} onSaved={refresh} />
-      <Section title={`Transactions (${d.data.transactions.length})`} pad={false}>
+      <Section title={`Transactions (${d.data.transactions.length})`} right={<CsvImport portfolioId={id} onDone={refresh} />} pad={false}>
         <table className="t">
           <thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th className="num">Qty</th><th className="num">Price</th><th className="num">Amount</th><th className="num">Fee</th><th>Ccy</th><th>Note</th><th /></tr></thead>
           <tbody>{[...d.data.transactions].reverse().map((t) => <TxRow key={t.id} t={t} portfolioId={id} onChange={refresh} />)}</tbody>
@@ -244,6 +244,32 @@ function PerformanceSection({ id, base, version }: { id: number; base: string; v
     );
   }
   return <Section title={`Performance (${base})`} right={controls}>{body}</Section>;
+}
+
+/** Imports a CSV of transactions (header: date,type,symbol,quantity,price,fee,amount,currency,note). All rows or none. */
+function CsvImport({ portfolioId, onDone }: { portfolioId: number; onDone: () => void }) {
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setMsg(null);
+    try {
+      const r = await api<{ imported: number }>(`/api/portfolios/${portfolioId}/import`, { method: 'POST', body: { csv: await file.text() } });
+      setMsg({ ok: true, text: `Imported ${r.imported} transaction(s) from ${file.name}.` });
+      onDone();
+    } catch (e) {
+      const ae = e as ApiError;
+      setMsg({ ok: false, text: [ae.message, ...(ae.issues ?? [])].join(' ') });
+    }
+  };
+  return (
+    <span className="row">
+      {msg && <span className={msg.ok ? 'up' : 'down'} style={{ maxWidth: 420 }}>{msg.text}</span>}
+      <label className="btn" title="CSV columns: date,type,symbol,quantity,price,fee,amount,currency,note. All rows are checked before any is saved.">
+        Import CSV
+        <input type="file" accept=".csv,text/csv" hidden onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+    </span>
+  );
 }
 
 function TransactionForm({ portfolioId, baseCurrency, onSaved }: { portfolioId: number; baseCurrency: string; onSaved: () => void }) {

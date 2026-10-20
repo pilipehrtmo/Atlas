@@ -5,3 +5,4 @@ export * from './finance.js';
 export * from './portfolio.js';
 export * from './commands.js';
 export * from './performance.js';
+export * from './csv.js';
