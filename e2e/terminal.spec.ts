@@ -87,3 +87,15 @@ test('a pane can be maximized and restored', async ({ page }) => {
   await page.getByRole('button', { name: 'Restore pane' }).click();
   await expect(page.locator('.pane')).toHaveCount(4);
 });
+
+test('portfolio performance compares against a benchmark', async ({ page }) => {
+  const port = pane(page, 4);
+  await expect(port.getByText('Time-weighted return 1Y')).toBeVisible();
+  await expect(port.getByText('DM500 over the same dates')).toBeVisible();
+  await expect(port.locator('svg[aria-label="Portfolio chart"]')).toBeVisible();
+  await port.getByRole('button', { name: '3M' }).click();
+  await expect(port.getByText('Time-weighted return 3M')).toBeVisible();
+  await port.getByRole('textbox', { name: 'Benchmark' }).fill('DMTECH');
+  await port.getByRole('textbox', { name: 'Benchmark' }).press('Enter');
+  await expect(port.getByText('DMTECH over the same dates')).toBeVisible();
+});
