@@ -11,10 +11,12 @@
     "dev": "concurrently -n server,web -c blue,green \"npm:dev -w @atlas/server\" \"npm:dev -w @atlas/web\"",
     "build": "npm run build -w @atlas/web",
     "start": "npm run start -w @atlas/server",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p apps/server && tsc --noEmit -p apps/web",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p apps/server && tsc --noEmit -p apps/web && tsc --noEmit -p e2e",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

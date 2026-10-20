@@ -32,6 +32,16 @@ async function check<T>(name: string, p: Promise<ProviderResult<T>>, assert: (d:
 }
 const expect = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };
 
+// Raw probe so a refusal shows what SEC actually said (their block page explains the reason).
+for (const url of ['https://www.sec.gov/files/company_tickers.json', 'https://data.sec.gov/submissions/CIK0000320193.json']) {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': ua, Accept: 'application/json', 'Accept-Encoding': 'gzip, deflate' } });
+    const body = res.ok ? '' : (await res.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400);
+    console.log(`INFO probe ${url} -> ${res.status}${body ? `: ${body}` : ''}`);
+  } catch (e) { console.log(`INFO probe ${url} threw ${(e as Error).message}`); }
+}
+console.log(`INFO SEC User-Agent: ${ua}`);
+
 await check('sec.search', sec.search('AAPL'), (d) => {
   expect(d[0]?.symbol === 'AAPL', `first match ${d[0]?.symbol}`);
   return `${d.length} matches, first ${d[0].name} CIK ${d[0].cik}`;
