@@ -8,6 +8,7 @@ import { research } from './ai/research.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { marketOverview, screenerUniverse } from './market.js';
+import { portfolioHistory } from './performance.js';
 import type { DataService } from './providers/service.js';
 import { Repo } from './repo.js';
 
@@ -206,6 +207,21 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
       }
     }
     return { portfolio: pf, transactions, ledger, valuation: valuePortfolio(ledger, prices, pf.baseCurrency, fxToBase), quotes, fxToBase, fxProvenance };
+  });
+  app.get('/api/portfolios/:id/history', async (req, reply) => {
+    const pf = repo.getPortfolio(idParam.parse(req.params).id);
+    if (!pf) return reply.status(404).send({ error: 'Portfolio not found' });
+    const q = z.object({
+      range: z.enum(['1M', '3M', '6M', '1Y', '5Y', 'MAX']).default('1Y'),
+      benchmark: z.string().trim().toUpperCase().refine(isValidSymbol, 'Invalid benchmark symbol').optional(),
+    }).parse(req.query);
+    const transactions = repo.listTransactions(pf.id);
+    try {
+      return await portfolioHistory(data, transactions, pf.baseCurrency, q.range, q.benchmark ?? null);
+    } catch (e) {
+      if (e instanceof LedgerError) return reply.status(422).send({ error: e.message });
+      throw e;
+    }
   });
   app.post('/api/portfolios/:id/transactions', async (req, reply) => {
     const pf = repo.getPortfolio(idParam.parse(req.params).id);

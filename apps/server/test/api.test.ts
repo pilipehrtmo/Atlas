@@ -39,6 +39,18 @@ describe('API in demo mode', () => {
     expect(Number(r.fxToBase.EUR)).toBeGreaterThan(0.5);
     expect(r.ledger.positions.find((p: { symbol: string }) => p.symbol === 'NOVA').quantity).toBe('100');
   });
+  it('returns daily performance history with a benchmark', async () => {
+    const [pf] = await get('/api/portfolios');
+    const h = await get(`/api/portfolios/${pf.id}/history?range=1Y&benchmark=DM500`);
+    expect(h.method).toBe('cash-tracked');
+    expect(h.points.length).toBeGreaterThan(200);
+    expect(h.unavailable).toEqual([]);
+    expect(h.gaps).toBe(0);
+    expect(h.twr).not.toBeNull();
+    expect(h.benchmark.symbol).toBe('DM500');
+    expect(h.benchmark.returns[0]).toBe('0');
+    expect(h.sources.every((s: { provenance: { timeliness: string } }) => s.provenance.timeliness === 'synthetic')).toBe(true);
+  });
   it('rejects a sell that exceeds the position', async () => {
     const [pf] = await get('/api/portfolios');
     const res = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/transactions`, payload: { date: '2026-01-05', type: 'SELL', symbol: 'NOVA', quantity: '1000', price: '100', currency: 'USD' } });

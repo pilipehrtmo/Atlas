@@ -1,6 +1,7 @@
-import { dec, type LedgerState, type PortfolioValuation, type Provenance, type ProviderResult, type Quote, type Transaction, type TxType } from '@atlas/core';
+import { annualizeReturn, dec, type LedgerState, type PortfolioValuation, type Provenance, type ProviderResult, type Quote, type Transaction, type TxType } from '@atlas/core';
 import { Fragment, useEffect, useState } from 'react';
 import { api, ApiError, invalidate, useApi } from '../api';
+import { LineChart } from '../components/Chart';
 import { ErrorBox, Loading, Prov, Section, V } from '../components/common';
 import { fmtNum, fmtPct, fmtSigned, tone } from '../format';
 import { useTerminal } from '../terminal';
@@ -117,6 +118,7 @@ function PortfolioDetailView({ id }: { id: number }) {
           </Section>
         </div>
       )}
+      {v && <PerformanceSection id={id} base={base} version={d.data.transactions.map((t) => t.id).join(',')} />}
       {v && (
         <Section title="Holdings" pad={false}>
           {v.positions.length === 0 ? <div className="notice">No open positions.</div> : (
@@ -140,7 +142,7 @@ function PortfolioDetailView({ id }: { id: number }) {
               })}</tbody>
             </table>
           )}
-          <div className="dim" style={{ fontSize: 10, padding: '4px 7px' }}>Cost basis: weighted average, buy fees included. Benchmark comparison and performance history are not built yet.</div>
+          <div className="dim" style={{ fontSize: 10, padding: '4px 7px' }}>Cost basis: weighted average, buy fees included..</div>
         </Section>
       )}
       <TransactionForm portfolioId={id} baseCurrency={base} onSaved={refresh} />
@@ -166,6 +168,82 @@ function TxRow({ t, portfolioId, onChange }: { t: Transaction; portfolioId: numb
       }}>×</button></td>
     </tr>
   );
+}
+
+interface HistoryResponse {
+  method: 'cash-tracked' | 'holdings-only';
+  points: { date: string; value: string | null; cumulativeReturn: string | null; missing: string[] }[];
+  twr: string | null;
+  gaps: number;
+  benchmark: { symbol: string; returns: (string | null)[] } | null;
+  sources: { item: string; provenance: Provenance }[];
+  unavailable: { item: string; reason: string }[];
+}
+
+const RANGES = ['1M', '3M', '6M', '1Y', '5Y', 'MAX'] as const;
+
+function PerformanceSection({ id, base, version }: { id: number; base: string; version: string }) {
+  const { meta } = useTerminal();
+  const [range, setRange] = useState<(typeof RANGES)[number]>('1Y');
+  const [bench, setBench] = useState(meta.mode === 'demo' ? 'DM500' : 'SPY');
+  const [benchInput, setBenchInput] = useState(bench);
+  const [show, setShow] = useState<'return' | 'value'>('return');
+  const h = useApi<HistoryResponse>(`/api/portfolios/${id}/history?range=${range}${bench ? `&benchmark=${encodeURIComponent(bench)}` : ''}`, [version]);
+  const controls = (
+    <span className="row">
+      <span className="seg">{RANGES.map((r) => <button key={r} className={`btn ${r === range ? 'on' : ''}`} onClick={() => setRange(r)}>{r}</button>)}</span>
+      <span className="seg"><button className={`btn ${show === 'return' ? 'on' : ''}`} onClick={() => setShow('return')}>Return</button><button className={`btn ${show === 'value' ? 'on' : ''}`} onClick={() => setShow('value')}>Value</button></span>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); setBench(benchInput.trim().toUpperCase()); }}>
+        <input className="in mono" aria-label="Benchmark" placeholder="Benchmark" value={benchInput} onChange={(e) => setBenchInput(e.target.value.toUpperCase())} style={{ width: 70 }} />
+      </form>
+    </span>
+  );
+  let body;
+  if (h.error) body = <ErrorBox error={h.error} onRetry={h.reload} />;
+  else if (!h.data) body = <Loading lines={4} />;
+  else {
+    const r = h.data;
+    const pts = r.points.filter((p) => p.value !== null || p.missing.length > 0);
+    const offset = r.points.length - pts.length;
+    const first = pts[0]?.date, last = pts.at(-1)?.date;
+    const days = first && last ? (Date.parse(last) - Date.parse(first)) / 86_400_000 : 0;
+    const benchRet = r.benchmark?.returns.slice(offset) ?? null;
+    // Rebase the benchmark to the portfolio's first valued date so both lines start at 0%.
+    const b0 = benchRet?.[0] != null ? Number(benchRet[0]) : null;
+    const benchLine = benchRet && b0 !== null ? benchRet.map((x) => (x === null ? null : ((1 + Number(x)) / (1 + b0) - 1) * 100)) : null;
+    const benchTotal = benchLine?.at(-1) ?? null;
+    const twrPct = r.twr === null ? null : Number(r.twr) * 100;
+    const ann = r.twr !== null && days >= 365 ? annualizeReturn(r.twr, days) : null;
+    const allMissing = [...new Set(r.points.flatMap((p) => p.missing))];
+    body = pts.length === 0 ? <div className="notice">No valued history in this range yet.</div> : (
+      <>
+        <dl className="kv" style={{ marginBottom: 4 }}>
+          <dt>Time-weighted return {range}</dt><dd className={tone(twrPct ?? 0)}>{twrPct === null ? <span className="na" title="One or more days could not be valued, so the return across the gap is unknown">n/a</span> : fmtPct(twrPct)}</dd>
+          {ann !== null && <><dt>Annualized</dt><dd className={tone(Number(ann))}>{fmtPct(ann, 2, true)}</dd></>}
+          {r.benchmark && <><dt>{r.benchmark.symbol} over the same dates</dt><dd className={tone(benchTotal ?? 0)}>{benchTotal === null ? 'n/a' : fmtPct(benchTotal)}</dd></>}
+          {r.benchmark && twrPct !== null && benchTotal !== null && <><dt>Excess return</dt><dd className={tone(twrPct - benchTotal)}>{fmtPct(twrPct - benchTotal)}</dd></>}
+        </dl>
+        {show === 'return' ? (
+          <LineChart height={180} label="Portfolio" baseline={0} format={(n) => `${n.toFixed(2)}%`}
+            points={pts.map((p) => ({ x: p.date, y: p.cumulativeReturn === null ? null : Number(p.cumulativeReturn) * 100 }))}
+            compare={benchLine && r.benchmark ? { label: r.benchmark.symbol, values: benchLine } : undefined} />
+        ) : (
+          <LineChart height={180} label={`Value ${base}`} format={(n) => fmtNum(n, 0)} points={pts.map((p) => ({ x: p.date, y: p.value === null ? null : Number(p.value) }))} />
+        )}
+        {(r.gaps > 0 || r.unavailable.length > 0) && (
+          <div className="warn" style={{ marginTop: 4 }}>
+            {r.gaps > 0 && <>{r.gaps} day(s) could not be valued ({allMissing.slice(0, 4).join(', ')}{allMissing.length > 4 ? ', …' : ''}). </>}
+            {r.unavailable.map((u) => `${u.item}: ${u.reason}`).join(' ')}
+          </div>
+        )}
+        <div className="dim" style={{ fontSize: 10, marginTop: 4 }}>
+          {r.method === 'cash-tracked' ? 'Value includes cash; deposits and withdrawals are not counted as performance.' : 'No deposits recorded, so cash is not modelled: value is holdings only, buys count as money in and sells and dividends as money out.'}
+          {' '}Daily closes; a price older than 7 days is treated as missing. {r.sources[0] && <>Prices: <Prov p={r.sources[0].provenance} /></>}
+        </div>
+      </>
+    );
+  }
+  return <Section title={`Performance (${base})`} right={controls}>{body}</Section>;
 }
 
 function TransactionForm({ portfolioId, baseCurrency, onSaved }: { portfolioId: number; baseCurrency: string; onSaved: () => void }) {
