@@ -51,6 +51,19 @@ describe('API in demo mode', () => {
     expect(h.benchmark.returns[0]).toBe('0');
     expect(h.sources.every((s: { provenance: { timeliness: string } }) => s.provenance.timeliness === 'synthetic')).toBe(true);
   });
+  it('imports CSV transactions all-or-nothing', async () => {
+    const pf = (await app.inject({ method: 'POST', url: '/api/portfolios', payload: { name: 'Import test' } })).json();
+    const good = 'date,type,symbol,quantity,price,currency,note\n2026-10-20,buy,VOO,2,500,USD,Test import\n2026-10-20,BUY,SGOV,10,100,USD,';
+    const r = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/import`, payload: { csv: good } });
+    expect(r.json()).toEqual({ imported: 2 });
+    const bad = 'date,type,symbol,quantity,price,currency\n2026-10-21,SELL,VOO,1,700,USD\n2026-10-21,BUY,,1,1,USD';
+    const b = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/import`, payload: { csv: bad } });
+    expect(b.statusCode).toBe(400);
+    const over = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/import`, payload: { csv: 'date,type,symbol,quantity,price,currency\n2026-10-21,SELL,VOO,5,700,USD' } });
+    expect(over.statusCode).toBe(422);
+    const d = await get(`/api/portfolios/${pf.id}`);
+    expect(d.transactions.length).toBe(2);
+  });
   it('rejects a sell that exceeds the position', async () => {
     const [pf] = await get('/api/portfolios');
     const res = await app.inject({ method: 'POST', url: `/api/portfolios/${pf.id}/transactions`, payload: { date: '2026-01-05', type: 'SELL', symbol: 'NOVA', quantity: '1000', price: '100', currency: 'USD' } });

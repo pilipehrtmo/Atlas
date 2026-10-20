@@ -1,5 +1,5 @@
 import fastifyStatic from '@fastify/static';
-import { buildLedger, dec, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
+import { buildLedger, dec, parseCsv, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -237,6 +237,27 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
     buildLedger([...repo.listTransactions(pf.id), tx]);
     const id = repo.addTransaction(pf.id, tx);
     return reply.status(201).send({ id });
+  });
+  // CSV import: all rows are validated, and checked against the ledger together, before any is saved.
+  app.post('/api/portfolios/:id/import', async (req, reply) => {
+    const pf = repo.getPortfolio(idParam.parse(req.params).id);
+    if (!pf) return reply.status(404).send({ error: 'Portfolio not found' });
+    const { csv } = z.object({ csv: z.string().min(1).max(2_000_000) }).parse(req.body);
+    const rows = parseCsv(csv);
+    if (!rows.length) return reply.status(400).send({ error: 'The file has no data rows. Expected a header: date,type,symbol,quantity,price,fee,amount,currency,note' });
+    if (rows.length > 5000) return reply.status(413).send({ error: 'Import at most 5,000 rows at a time' });
+    const txs: Transaction[] = [];
+    const issues: string[] = [];
+    rows.forEach((r, i) => {
+      const clean = Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== '' && ['date', 'type', 'symbol', 'quantity', 'price', 'fee', 'amount', 'currency', 'note', 'splitratio'].includes(k)).map(([k, v]) => [k === 'splitratio' ? 'splitRatio' : k, k === 'type' ? v.toUpperCase() : v]));
+      const p = txSchema.safeParse(clean);
+      if (p.success) txs.push(p.data as Transaction);
+      else issues.push(`Row ${i + 2}: ${p.error.issues.map((x) => `${x.path.join('.') || 'row'} ${x.message}`).join('; ')}`);
+    });
+    if (issues.length) return reply.status(400).send({ error: `${issues.length} row(s) are invalid; nothing was imported.`, issues: issues.slice(0, 20) });
+    buildLedger([...repo.listTransactions(pf.id), ...txs]);
+    repo.addTransactions(pf.id, txs);
+    return reply.status(201).send({ imported: txs.length });
   });
   app.delete('/api/portfolios/:id/transactions/:txId', async (req, reply) => {
     const { id, txId } = z.object({ id: z.coerce.number().int(), txId: z.coerce.number().int() }).parse(req.params);

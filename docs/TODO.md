@@ -27,7 +27,8 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 - 🟡 EARNINGS: reported results from filings; no forward calendar
 - ❌ NEWS feed, alerts, comparable-company analysis, dividend history, corporate actions feed
 - ✅ Portfolio performance history (daily value, TWR, annualized) with benchmark comparison
-- ❌ Sector/geography allocation, CSV import
+- ✅ CSV transaction import (all-or-nothing, ledger-checked)
+- ❌ Sector/geography allocation
 
 ## Phase 5: AI
 - ✅ Evidence pack retrieval with provenance; Claude Citations API; facts / interpretation / missing-data structure
