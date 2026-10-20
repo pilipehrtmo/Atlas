@@ -2,8 +2,8 @@ import fastifyStatic from '@fastify/static';
 import { buildLedger, dec, parseCsv, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { research } from './ai/research.js';
 import type { Config } from './config.js';
@@ -11,6 +11,7 @@ import type { Db } from './db.js';
 import { marketOverview, screenerUniverse } from './market.js';
 import { portfolioHistory } from './performance.js';
 import type { DataService } from './providers/service.js';
+import { EDITABLE_KEYS, upsertEnv } from './lib/envfile.js';
 import { Repo } from './repo.js';
 
 const symbolParam = z.object({ symbol: z.string().transform((s) => s.toUpperCase()).refine(isValidSymbol, 'Invalid symbol') });
@@ -76,6 +77,33 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
     functions: FUNCTIONS,
   }));
   app.get('/api/health', async () => ({ ok: true }));
+
+  // ---- Data source settings: lets the owner paste API keys in the UI instead of editing .env.
+  // Allowed from this machine, or from anywhere once ATLAS_ACCESS_TOKEN protects the API.
+  const canEditSettings = (req: { ip: string; headers: Record<string, unknown> }) =>
+    !!config.ATLAS_ACCESS_TOKEN || (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.ip) && !req.headers['x-forwarded-for']);
+  app.get('/api/settings/sources', async (req) => ({
+    editable: canEditSettings(req),
+    envFile: resolve(config.ATLAS_ENV_FILE),
+    set: Object.fromEntries(EDITABLE_KEYS.map((k) => [k, !!config[k]])),
+    secUserAgent: config.SEC_USER_AGENT ?? null,
+  }));
+  app.put('/api/settings/sources', async (req, reply) => {
+    if (!canEditSettings(req)) return reply.status(403).send({ error: 'Settings can be changed only from the computer running Atlas, or with an access token configured.' });
+    const oneLine = z.string().trim().max(200).regex(/^[^\r\n]*$/, 'must be a single line');
+    const body = z.object({
+      TIINGO_API_KEY: oneLine.regex(/^[A-Za-z0-9]*$/, 'should be letters and digits only').optional(),
+      FRED_API_KEY: oneLine.regex(/^[A-Za-z0-9]*$/, 'should be letters and digits only').optional(),
+      SEC_USER_AGENT: oneLine.refine((v) => v === '' || /\S+@\S+\.\S+/.test(v), 'needs a name and a contact email, e.g. "Jane Doe jane@example.com"').optional(),
+      ANTHROPIC_API_KEY: oneLine.optional(),
+    }).strict().parse(req.body);
+    const path = resolve(config.ATLAS_ENV_FILE);
+    const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    writeFileSync(path, upsertEnv(current, body), { mode: 0o600 });
+    for (const [k, v] of Object.entries(body)) (config as Record<string, unknown>)[k] = v === '' ? undefined : v;
+    data.reconfigure(config);
+    return { ok: true, saved: Object.keys(body) };
+  });
 
   // ---- Securities
   app.get('/api/search', async (req) => {

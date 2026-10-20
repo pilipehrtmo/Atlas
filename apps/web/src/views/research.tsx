@@ -1,6 +1,6 @@
 import { FUNCTIONS, type Provenance } from '@atlas/core';
 import { Fragment, useMemo, useState } from 'react';
-import { api, invalidate, useApi } from '../api';
+import { api, ApiError, invalidate, useApi } from '../api';
 import { ErrorBox, Loading, Prov, Section, Unavailable, V } from '../components/common';
 import { fmtCompact, fmtNum, fmtPct, NA, tone } from '../format';
 import { useTerminal } from '../terminal';
@@ -250,10 +250,65 @@ export function HELP(_: ViewProps) {
   );
 }
 
+interface SourceSettings { editable: boolean; envFile: string; set: Record<string, boolean>; secUserAgent: string | null }
+
+const SOURCE_FIELDS = [
+  { key: 'TIINGO_API_KEY', label: 'Tiingo API token', what: 'Prices, charts and search for all US stocks and ETFs', link: 'https://www.tiingo.com/account/api/token', secret: true },
+  { key: 'SEC_USER_AGENT', label: 'SEC contact', what: 'Company profiles, filings and financials. SEC asks for a name and email, e.g. "Jane Doe jane@example.com"', link: 'https://www.sec.gov/os/accessing-edgar-data', secret: false },
+  { key: 'FRED_API_KEY', label: 'FRED API key', what: 'Macro data: inflation, jobs, GDP, rates', link: 'https://fred.stlouisfed.org/docs/api/api_key.html', secret: true },
+  { key: 'ANTHROPIC_API_KEY', label: 'Claude API key', what: 'AI answers with citations in RESEARCH (paid, usage-based)', link: 'https://console.anthropic.com/settings/keys', secret: true },
+] as const;
+
+/** Lets the owner paste API keys; the server saves them to .env and switches providers on immediately. */
+function ConnectSources() {
+  const s = useApi<SourceSettings>('/api/settings/sources');
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  if (s.error) return <ErrorBox error={s.error} onRetry={s.reload} />;
+  if (!s.data) return <Loading />;
+  const save = async () => {
+    setMsg(null);
+    const body = Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, v.trim()]));
+    if (!Object.keys(body).length) return;
+    try {
+      await api('/api/settings/sources', { method: 'PUT', body });
+      setMsg({ ok: true, text: 'Saved. Reloading with the new data sources…' });
+      invalidate('/');
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      const ae = e as ApiError;
+      setMsg({ ok: false, text: [ae.message, ...(ae.issues ?? [])].join(' ') });
+    }
+  };
+  return (
+    <Section title="Connect data sources">
+      {!s.data.editable ? <div className="muted">Keys can be changed only from the computer running Atlas (or set ATLAS_ACCESS_TOKEN first). Edit {s.data.envFile} instead.</div> : (
+        <form className="sources" onSubmit={(e) => { e.preventDefault(); save(); }}>
+          {SOURCE_FIELDS.map((f) => (
+            <label key={f.key} className="source-row">
+              <span className="source-name">{f.label} <span className={s.data!.set[f.key] ? 'up' : 'dim'}>{s.data!.set[f.key] ? '● connected' : '○ not set'}</span></span>
+              <span className="dim source-what">{f.what}. <a href={f.link} target="_blank" rel="noreferrer">Get it</a></span>
+              <input className="in mono" type={f.secret ? 'password' : 'text'} autoComplete="off" aria-label={f.label}
+                placeholder={s.data!.set[f.key] ? (f.key === 'SEC_USER_AGENT' ? s.data!.secUserAgent ?? 'saved' : 'saved, paste to replace') : f.key === 'SEC_USER_AGENT' ? 'Your Name you@example.com' : 'paste here'}
+                value={values[f.key] ?? ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+            </label>
+          ))}
+          <div className="row">
+            <button className="btn primary" disabled={!Object.values(values).some((v) => v.trim())}>Save and connect</button>
+            {msg && <span className={msg.ok ? 'up' : 'down'}>{msg.text}</span>}
+          </div>
+          <div className="dim" style={{ fontSize: 10.5 }}>Keys are saved on this computer in {s.data.envFile} and never sent to the browser again.</div>
+        </form>
+      )}
+    </Section>
+  );
+}
+
 export function STATUS(_: ViewProps) {
   const { meta } = useTerminal();
   return (
     <div className="col">
+      {meta.mode === 'live' && <ConnectSources />}
       <Section title="Data mode">
         {meta.mode === 'demo'
           ? <div><span className="mode demo">DEMO</span> All data is synthetic and generated locally for fictional companies. Filings and news are never simulated. Set <span className="mono">ATLAS_DATA_MODE=live</span> to use real providers.</div>

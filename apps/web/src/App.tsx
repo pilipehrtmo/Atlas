@@ -9,9 +9,10 @@ import { VIEWS } from './views';
 interface PaneState { stack: PaneCmd[]; pos: number }
 interface SavedLayout { panes: PaneCmd[]; sizes: Record<string, Layout> }
 
-const DEFAULT_PANES = (mode: Meta['mode']): PaneCmd[] => [
+const DEFAULT_PANES = (meta: Meta): PaneCmd[] => [
   { fn: 'MKT', args: [] },
-  { fn: 'DES', symbol: mode === 'demo' ? 'NOVA' : 'AAPL', args: [] },
+  // First run in live mode with keys missing: open the setup page instead of a page of "unavailable".
+  meta.mode === 'live' && meta.providers.some((p) => !p.configured) ? { fn: 'STATUS', args: [] } : { fn: 'DES', symbol: meta.mode === 'demo' ? 'NOVA' : 'AAPL', args: [] },
   { fn: 'W', args: [] },
   { fn: 'PORT', args: [] },
 ];
@@ -62,7 +63,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
 }
 
 function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
-  const [panes, setPanes] = useState<PaneState[]>(() => (saved?.panes?.length === 4 ? saved.panes : DEFAULT_PANES(meta.mode)).map((c) => ({ stack: [c], pos: 0 })));
+  const [panes, setPanes] = useState<PaneState[]>(() => (saved?.panes?.length === 4 ? saved.panes : DEFAULT_PANES(meta)).map((c) => ({ stack: [c], pos: 0 })));
   const [active, setActive] = useState(0);
   const [maximized, setMaximized] = useState<number | null>(null);
   const [recent, setRecent] = useState<string[]>([]);

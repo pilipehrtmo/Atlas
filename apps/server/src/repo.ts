@@ -103,6 +103,14 @@ export class Repo {
 
   /** First-run content for demo mode only, so the demo opens with something to look at. */
   seedDemo() {
+    if (this.mode === 'live') {
+      // A starter watchlist of real tickers; prices come from whichever live provider is configured.
+      if (this.listWatchlists().length === 0) {
+        const id = this.createWatchlist('US large caps');
+        for (const s of ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'VOO']) this.addToWatchlist(id, s);
+      }
+      return;
+    }
     if (this.mode !== 'demo') return;
     if (this.listWatchlists().length === 0) {
       const id = this.createWatchlist('Core');
