@@ -14,14 +14,14 @@ Requirements: Node.js 22.13 or newer (Atlas uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-cp .env.example .env        # demo mode works with no keys
+cp .env.example .env        # optional: demo mode works with no .env at all
 npm run dev                 # API on :8787, UI on http://localhost:5173
 ```
 
-Production-style single process:
+Single process (works the same in Windows PowerShell, macOS and Linux):
 
 ```bash
-npm run build && npm start  # serves the built UI and the API on http://127.0.0.1:8787
+npm run atlas               # builds the UI, then serves it and the API on http://127.0.0.1:8787
 ```
 
 Checks:

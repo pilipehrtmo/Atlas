@@ -268,7 +268,7 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
 
   // ---- Static web build (production)
   const webDist = join(process.cwd(), '..', 'web', 'dist');
-  if (process.env.NODE_ENV === 'production' && existsSync(webDist)) {
+  if (existsSync(webDist)) {
     app.register(fastifyStatic, { root: webDist });
     app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') ? reply.status(404).send({ error: 'Not found' }) : reply.sendFile('index.html')));
   }
