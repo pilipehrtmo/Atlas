@@ -32,43 +32,53 @@ async function check<T>(name: string, p: Promise<ProviderResult<T>>, assert: (d:
 }
 const expect = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };
 
-// Raw probe so a refusal shows what SEC actually said (their block page explains the reason).
+// Raw probe so a refusal shows what SEC actually said. SEC blocks some shared cloud IP ranges
+// (GitHub-hosted runners included) with its "Undeclared Automated Tool" / rate-threshold pages
+// even with a declared User-Agent; that is reported as BLOCKED rather than as an adapter failure.
+let secBlocked: string | null = null;
 for (const url of ['https://www.sec.gov/files/company_tickers.json', 'https://data.sec.gov/submissions/CIK0000320193.json']) {
   try {
     const res = await fetch(url, { headers: { 'User-Agent': ua, Accept: 'application/json', 'Accept-Encoding': 'gzip, deflate' } });
-    const body = res.ok ? '' : (await res.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400);
-    console.log(`INFO probe ${url} -> ${res.status}${body ? `: ${body}` : ''}`);
+    const body = res.ok ? '' : (await res.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const page = body.match(/SEC\.gov \| ([^|{]+?)\s+html/)?.[1];
+    if (res.status === 403 && page) secBlocked = page;
+    console.log(`INFO probe ${url} -> ${res.status}${page ? `: ${page}` : body ? `: ${body.slice(0, 200)}` : ''}`);
   } catch (e) { console.log(`INFO probe ${url} threw ${(e as Error).message}`); }
 }
 console.log(`INFO SEC User-Agent: ${ua}`);
 
-await check('sec.search', sec.search('AAPL'), (d) => {
-  expect(d[0]?.symbol === 'AAPL', `first match ${d[0]?.symbol}`);
-  return `${d.length} matches, first ${d[0].name} CIK ${d[0].cik}`;
-});
-await check('sec.profile', sec.profile('AAPL'), (d) => {
-  expect(d.fiscalYearEnd === '0926' || d.fiscalYearEnd?.startsWith('09'), `fiscal year end ${d.fiscalYearEnd}`);
-  return `${d.name}, ${d.exchange}, ${d.industry}, FYE ${d.fiscalYearEnd}`;
-});
-await check('sec.filings', sec.filings('AAPL', ['10-K']), (d) => {
-  expect(d.length > 0 && d.every((f) => f.form === '10-K'), 'no 10-K filings');
-  expect(d[0].url.startsWith('https://www.sec.gov/Archives/edgar/data/320193/'), `url ${d[0].url}`);
-  return `${d.length} 10-Ks, latest ${d[0].filingDate} ${d[0].url}`;
-});
-
-for (const sym of ['AAPL', 'MSFT', 'JPM', 'BRK.B']) {
-  await check(`sec.fundamentals ${sym}`, sec.fundamentals(sym), (d) => {
-    const rev = d.lines.find((l) => l.key === 'revenue');
-    const ni = d.lines.find((l) => l.key === 'netIncome');
-    expect(ni && ni.annual.length >= 3, 'fewer than 3 annual net income points');
-    const last3 = (rev ?? ni)!.annual.slice(-3).map((p) => `${p.fiscalYear ?? '?'}/${p.end}=${(Number(p.value) / 1e9).toFixed(1)}B(${p.form})`);
-    // Annual points must be one per fiscal period and strictly increasing in end date.
-    const ends = ni!.annual.map((p) => p.end);
-    expect(new Set(ends).size === ends.length, 'duplicate annual periods');
-    const latestEnd = ends.at(-1)!;
-    expect(Date.now() - Date.parse(latestEnd) < 500 * 86_400_000, `latest annual period is stale: ${latestEnd}`);
-    return `${d.lines.length} lines; ${rev ? 'revenue' : 'net income'} ${last3.join(', ')}; lines: ${d.lines.map((l) => l.key).join(',')}`;
+if (secBlocked) {
+  console.log(`BLOCKED sec: SEC refused this network ("${secBlocked}"); adapter not exercised`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=SEC EDGAR blocked::SEC refused the runner's IP (${secBlocked}). SEC checks were not run.`);
+} else {
+  await check('sec.search', sec.search('AAPL'), (d) => {
+    expect(d[0]?.symbol === 'AAPL', `first match ${d[0]?.symbol}`);
+    return `${d.length} matches, first ${d[0].name} CIK ${d[0].cik}`;
   });
+  await check('sec.profile', sec.profile('AAPL'), (d) => {
+    expect(d.fiscalYearEnd === '0926' || d.fiscalYearEnd?.startsWith('09'), `fiscal year end ${d.fiscalYearEnd}`);
+    return `${d.name}, ${d.exchange}, ${d.industry}, FYE ${d.fiscalYearEnd}`;
+  });
+  await check('sec.filings', sec.filings('AAPL', ['10-K']), (d) => {
+    expect(d.length > 0 && d.every((f) => f.form === '10-K'), 'no 10-K filings');
+    expect(d[0].url.startsWith('https://www.sec.gov/Archives/edgar/data/320193/'), `url ${d[0].url}`);
+    return `${d.length} 10-Ks, latest ${d[0].filingDate} ${d[0].url}`;
+  });
+
+  for (const sym of ['AAPL', 'MSFT', 'JPM', 'BRK.B']) {
+    await check(`sec.fundamentals ${sym}`, sec.fundamentals(sym), (d) => {
+      const rev = d.lines.find((l) => l.key === 'revenue');
+      const ni = d.lines.find((l) => l.key === 'netIncome');
+      expect(ni && ni.annual.length >= 3, 'fewer than 3 annual net income points');
+      const last3 = (rev ?? ni)!.annual.slice(-3).map((p) => `${p.fiscalYear ?? '?'}/${p.end}=${(Number(p.value) / 1e9).toFixed(1)}B(${p.form})`);
+      // Annual points must be one per fiscal period and strictly increasing in end date.
+      const ends = ni!.annual.map((p) => p.end);
+      expect(new Set(ends).size === ends.length, 'duplicate annual periods');
+      const latestEnd = ends.at(-1)!;
+      expect(Date.now() - Date.parse(latestEnd) < 500 * 86_400_000, `latest annual period is stale: ${latestEnd}`);
+      return `${d.lines.length} lines; ${rev ? 'revenue' : 'net income'} ${last3.join(', ')}; lines: ${d.lines.map((l) => l.key).join(',')}`;
+    });
+  }
 }
 
 await check('treasury.curve', tsy.yieldCurve(), (d) => {

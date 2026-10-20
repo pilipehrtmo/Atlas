@@ -106,3 +106,11 @@ describe('Alpha Vantage', () => {
     expect(bars.map((b) => b.date)).toEqual(['2026-10-15', '2026-10-16']);
   });
 });
+
+describe('fetchText errors', () => {
+  it('includes the title of an HTML block page in the error', async () => {
+    const { fetchText } = await import('../src/lib/http.js');
+    const fetchImpl = (async () => new Response('<html><head><title>SEC.gov | Your Request Originates from an Undeclared Automated Tool</title></head></html>', { status: 403, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+    await expect(fetchText('https://example.test', { provider: 'SEC EDGAR', fetchImpl, retries: 0 })).rejects.toThrow('SEC EDGAR responded 403: SEC.gov | Your Request Originates from an Undeclared Automated Tool');
+  });
+});
