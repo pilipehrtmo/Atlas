@@ -33,4 +33,5 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 
 ## Phase 6: quality and deployment
 - ✅ 48 automated tests (formulas, ledger, parser, provider parsers, API), typecheck, production build
-- ❌ Multi-user auth and Postgres, CI pipeline, deployment config, E2E browser tests in CI
+- ✅ GitHub Actions CI: typecheck, unit tests, build, Playwright E2E (demo mode), weekday live-data checks
+- ❌ Multi-user auth and Postgres, deployment config
