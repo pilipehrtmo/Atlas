@@ -17,6 +17,8 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ATLAS_AI_MODEL: z.string().default("claude-opus-5-5"),
   FRANKFURTER_BASE_URL: z.string().default('https://api.frankfurter.app'),
+  /** The .env file that the in-app data source settings write to. Defaults to the repository root. */
+  ATLAS_ENV_FILE: z.string().default('../../.env'),
 });
 
 export type Config = z.infer<typeof schema>;

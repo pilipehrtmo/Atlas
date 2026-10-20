@@ -97,7 +97,10 @@ describe('live mode routing', () => {
     expect(q.reason).toMatch(/TIINGO_API_KEY/);
     const m = (await app.inject({ url: '/api/macro/CPIAUCSL' })).json();
     expect(m.reason).toMatch(/FRED_API_KEY/);
-    expect((await app.inject({ url: '/api/watchlists' })).json()).toEqual([]);
+    // Live mode gets its own starter watchlist of real tickers, never the demo one.
+    const lists = (await app.inject({ url: '/api/watchlists' })).json();
+    expect(lists.map((l: { name: string }) => l.name)).toEqual(['US large caps']);
+    expect(lists[0].symbols).not.toContain('NOVA');
     await app.close();
   });
 });
@@ -110,6 +113,30 @@ describe('access token', () => {
     expect((await app.inject({ url: '/api/meta' })).statusCode).toBe(401);
     expect((await app.inject({ url: '/api/meta', headers: { authorization: 'Bearer wrong' } })).statusCode).toBe(401);
     expect((await app.inject({ url: '/api/meta', headers: { authorization: 'Bearer s3cret-token' } })).statusCode).toBe(200);
+    await app.close();
+  });
+});
+
+describe('data source settings', () => {
+  it('writes keys to the env file and reconfigures providers without a restart', async () => {
+    const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const envFile = join(mkdtempSync(join(tmpdir(), 'atlas-env-')), '.env');
+    writeFileSync(envFile, '# keep me\nATLAS_DATA_MODE=live\nTIINGO_API_KEY=\n');
+    const config = loadConfig({ ATLAS_DATA_MODE: 'live', ATLAS_ENV_FILE: envFile });
+    const app = buildApp(config, openDb(':memory:'), DataService.fromConfig(config));
+    await app.ready();
+    const tiingo = async () => (await app.inject({ url: '/api/meta' })).json().providers.find((p: { id: string }) => p.id === 'tiingo').configured;
+    expect(await tiingo()).toBe(false);
+    const bad = await app.inject({ method: 'PUT', url: '/api/settings/sources', payload: { SEC_USER_AGENT: 'no email here' } });
+    expect(bad.statusCode).toBe(400);
+    const ok = await app.inject({ method: 'PUT', url: '/api/settings/sources', payload: { TIINGO_API_KEY: 'abc123', SEC_USER_AGENT: 'Pat Doe pat@example.com' } });
+    expect(ok.statusCode).toBe(200);
+    expect(await tiingo()).toBe(true);
+    expect(readFileSync(envFile, 'utf8')).toBe('# keep me\nATLAS_DATA_MODE=live\nTIINGO_API_KEY=abc123\nSEC_USER_AGENT="Pat Doe pat@example.com"\n');
+    const remote = await app.inject({ method: 'PUT', url: '/api/settings/sources', headers: { 'x-forwarded-for': '203.0.113.9' }, payload: { TIINGO_API_KEY: 'x' } });
+    expect(remote.statusCode).toBe(403);
     await app.close();
   });
 });
