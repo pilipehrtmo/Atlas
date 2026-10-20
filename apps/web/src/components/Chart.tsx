@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 export interface ChartPoint {
   x: string; // label, usually a date
@@ -13,6 +13,7 @@ export function LineChart({ points, height = 220, format = (n) => n.toFixed(2), 
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(600);
   const [hover, setHover] = useState<number | null>(null);
+  const gid = `g${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(([e]) => setW(Math.max(200, e.contentRect.width)));
@@ -46,9 +47,14 @@ export function LineChart({ points, height = 220, format = (n) => n.toFixed(2), 
     };
     const d = path(points.map((p) => p.y));
     const dc = compare ? path(compare.values) : '';
+    // Soft area fill under the main line, only when the series has no gaps.
+    const firstI = points.findIndex((p) => p.y !== null);
+    const area = firstI >= 0 && points.every((p, i) => i < firstI || p.y !== null)
+      ? `${d}L${xs(points.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)}L${xs(firstI).toFixed(1)},${(padT + plotH).toFixed(1)}Z`
+      : '';
     const ticks = Array.from({ length: 5 }, (_, k) => lo + ((hi - lo) * (k + 0.5)) / 5);
     const maxV = Math.max(1, ...points.map((p) => p.v ?? 0));
-    return { xs, ys, d, dc, ticks, maxV };
+    return { xs, ys, d, dc, area, ticks, maxV };
   }, [points, w, plotH, baseline, compare]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!geo) return <div className="notice">No observations to chart.</div>;
@@ -76,8 +82,15 @@ export function LineChart({ points, height = 220, format = (n) => n.toFixed(2), 
         {hasVol && points.map((p, i) => p.v ? (
           <rect key={i} x={geo.xs(i) - 0.5} width={Math.max(1, (w - padL - padR) / points.length - 1)} y={height - padB - (p.v / geo.maxV) * volH} height={(p.v / geo.maxV) * volH} fill="#2a3138" />
         ) : null)}
+        <defs>
+          <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity={0.22} />
+            <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        {geo.area && <path d={geo.area} fill={`url(#${gid})`} stroke="none" />}
         {compare && <path d={geo.dc} fill="none" stroke={compare.color ?? 'var(--text-2)'} strokeWidth={1.2} strokeDasharray="4 2" />}
-        <path d={geo.d} fill="none" stroke={stroke} strokeWidth={1.4} />
+        <path d={geo.d} fill="none" stroke={stroke} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
         {labelIdx.map((i, k) => points[i] && (
           <text key={k} className="axis" x={geo.xs(i)} y={height - 4} textAnchor={k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}>{points[i].x}</text>
         ))}

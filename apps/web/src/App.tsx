@@ -161,6 +161,14 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
           <span className={`mode ${meta.mode}`} title={meta.mode === 'demo' ? 'All data is synthetic. Fictional companies. Not market data.' : 'Live providers. See STATUS for sources and delays.'}>
             {meta.mode === 'demo' ? 'DEMO · SYNTHETIC DATA' : 'LIVE DATA'}
           </span>
+          {meta.mode === 'live' && (() => {
+            const missing = meta.providers.filter((p) => !p.configured);
+            return missing.length > 0 && (
+              <button className="setup-pill" title={`Not configured: ${missing.map((p) => p.name).join(', ')}. Open STATUS for what each one needs.`} onClick={() => run('STATUS')}>
+                {missing.length} data source{missing.length > 1 ? 's' : ''} need setup
+              </button>
+            );
+          })()}
           <span className="clock" title="Local time / UTC">
             {now.toLocaleTimeString([], { hour12: false })} · {now.toISOString().slice(11, 19)} UTC
           </span>
