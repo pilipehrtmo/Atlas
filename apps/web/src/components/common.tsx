@@ -35,6 +35,19 @@ export function Prov({ p, staleAfterDays }: { p: Provenance | null | undefined; 
   );
 }
 
+/** The provenance shared by every result, when they all come from the same provider, as-of date and timeliness; else null. */
+export function sharedProv(results: (ProviderResult<unknown> | undefined)[]): Provenance | null {
+  const ok = results.filter((r): r is Extract<ProviderResult<unknown>, { status: 'ok' }> => r?.status === 'ok');
+  if (!ok.length || ok.length !== results.length) return null;
+  const f = ok[0].provenance;
+  return ok.every((r) => r.provenance.provider === f.provider && r.provenance.asOf === f.asOf && r.provenance.timeliness === f.timeliness) ? f : null;
+}
+
+/** Source line under a table whose rows all share one provenance. */
+export function TableSource({ p }: { p: Provenance }) {
+  return <div className="table-foot">Source <Prov p={p} staleAfterDays={4} /></div>;
+}
+
 export function Loading({ lines = 3 }: { lines?: number }) {
   return <div aria-busy="true">{Array.from({ length: lines }, (_, i) => <div key={i} className="skeleton" style={{ width: `${90 - i * 15}%` }} />)}</div>;
 }

@@ -8,13 +8,15 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 - ✅ Keyboard: type-anywhere, `/`, Ctrl+K, Alt+1..4, Alt+←/→, F1
 - ✅ Design system: dark, dense, mono numerics, provenance tags, loading/empty/error/unavailable states
 - ✅ Configurable product name (`ATLAS_PRODUCT_NAME`)
-- ❌ Pane maximize, more than four panes, named workspaces
+- ✅ Pane maximize (Alt+Enter, double-click title, button; Esc restores)
+- ❌ More than four panes, named workspaces
 
 ## Phase 3: data
 - ✅ Provider abstraction with capability routing, provenance, caching, retries, rate limits, quota guard
 - ✅ Demo mode (synthetic, fictional, deterministic); never mixed with live
 - 🟡 SEC EDGAR, Treasury, ECB/Frankfurter, FRED, Alpha Vantage adapters: parsers tested against documented
-  response shapes; **not yet exercised against the live services** (blocked from the build environment)
+  response shapes. Treasury and ECB verified live in CI; SEC blocks CI runner IPs and is still unverified live;
+  FRED and Alpha Vantage need keys (see DATA_PROVIDERS.md)
 - ❌ Licensed intraday/delayed prices, index levels, news, estimates (see DATA_PROVIDERS.md)
 - ❌ Persistent cache / scheduled ingestion jobs (cache is in-memory)
 
@@ -24,7 +26,9 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 - 🟡 SCREENER: filters, sort, saved screens, CSV export work in demo; live screener not built
 - 🟡 EARNINGS: reported results from filings; no forward calendar
 - ❌ NEWS feed, alerts, comparable-company analysis, dividend history, corporate actions feed
-- ❌ Portfolio performance history, benchmark comparison, sector/geography allocation, CSV import
+- ✅ Portfolio performance history (daily value, TWR, annualized) with benchmark comparison
+- ✅ CSV transaction import (all-or-nothing, ledger-checked)
+- ❌ Sector/geography allocation
 
 ## Phase 5: AI
 - ✅ Evidence pack retrieval with provenance; Claude Citations API; facts / interpretation / missing-data structure
@@ -32,5 +36,7 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 - ❌ News-based catalysts, thesis tracking, hallucination evaluation set
 
 ## Phase 6: quality and deployment
-- ✅ 48 automated tests (formulas, ledger, parser, provider parsers, API), typecheck, production build
-- ❌ Multi-user auth and Postgres, CI pipeline, deployment config, E2E browser tests in CI
+- ✅ 58 automated tests (formulas, ledger, parser, provider parsers, API), typecheck, production build
+- ✅ GitHub Actions CI: typecheck, unit tests, build, Playwright E2E (demo mode), weekday live-data checks
+- ✅ Single-server deployment: install script, systemd, Caddy HTTPS, access-token sign-in (docs/DEPLOY.md)
+- ❌ Multi-user auth and Postgres

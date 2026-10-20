@@ -61,6 +61,17 @@ export class Repo {
         .run(portfolioId, t.date, t.type, t.symbol ?? null, t.quantity ?? null, t.price ?? null, t.amount ?? null, t.fee ?? null, t.currency, t.splitRatio ?? null, t.note ?? null).lastInsertRowid,
     );
   }
+  /** Inserts all or none. */
+  addTransactions(portfolioId: number, txs: Transaction[]) {
+    this.db.exec('BEGIN');
+    try {
+      for (const t of txs) this.addTransaction(portfolioId, t);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
   deleteTransaction(portfolioId: number, txId: number) {
     return this.db.prepare('DELETE FROM transactions WHERE id = ? AND portfolio_id = ?').run(txId, portfolioId).changes > 0;
   }
@@ -92,6 +103,14 @@ export class Repo {
 
   /** First-run content for demo mode only, so the demo opens with something to look at. */
   seedDemo() {
+    if (this.mode === 'live') {
+      // A starter watchlist of real tickers; prices come from whichever live provider is configured.
+      if (this.listWatchlists().length === 0) {
+        const id = this.createWatchlist('US large caps');
+        for (const s of ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'VOO']) this.addToWatchlist(id, s);
+      }
+      return;
+    }
     if (this.mode !== 'demo') return;
     if (this.listWatchlists().length === 0) {
       const id = this.createWatchlist('Core');

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const schema = z.object({
   ATLAS_PRODUCT_NAME: z.string().default('Atlas'),
-  ATLAS_DATA_MODE: z.enum(['demo', 'live']).default('demo'),
+  ATLAS_DATA_MODE: z.enum(['demo', 'live']).default('live'),
   PORT: z.coerce.number().int().default(8787),
   HOST: z.string().default('127.0.0.1'),
   ATLAS_DB_PATH: z.string().default('./data/atlas.db'),
@@ -11,10 +11,14 @@ const schema = z.object({
   /** SEC requires a descriptive User-Agent with contact details: "Company Name admin@example.com". */
   SEC_USER_AGENT: z.string().optional(),
   FRED_API_KEY: z.string().optional(),
+  /** Tiingo end-of-day US prices (free key). Preferred over Alpha Vantage when set. */
+  TIINGO_API_KEY: z.string().optional(),
   ALPHAVANTAGE_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ATLAS_AI_MODEL: z.string().default("claude-opus-5-5"),
   FRANKFURTER_BASE_URL: z.string().default('https://api.frankfurter.app'),
+  /** The .env file that the in-app data source settings write to. Defaults to the repository root. */
+  ATLAS_ENV_FILE: z.string().default('../../.env'),
 });
 
 export type Config = z.infer<typeof schema>;
