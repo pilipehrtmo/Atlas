@@ -1,6 +1,6 @@
 import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api';
+import { api, ApiError, setToken } from './api';
 import { CommandBar, type CommandBarHandle } from './components/CommandBar';
 import { ErrorBox, Loading } from './components/common';
 import { cmdLabel, fnDef, TerminalCtx, toPaneCmd, type Meta, type PaneCmd, type TerminalApi } from './terminal';
@@ -29,9 +29,36 @@ export function App() {
   }, []);
   useEffect(boot, [boot]);
 
+  if (bootError instanceof ApiError && bootError.status === 401) return <SignIn onDone={boot} />;
   if (bootError) return <div style={{ padding: 20, maxWidth: 520 }}><ErrorBox error={bootError} onRetry={boot} /></div>;
   if (!meta || saved === undefined) return <div style={{ padding: 20 }}><Loading /></div>;
   return <Terminal meta={meta} saved={saved} />;
+}
+
+/** Shown when the server requires ATLAS_ACCESS_TOKEN. The token is kept in this browser's local storage. */
+function SignIn({ onDone }: { onDone: () => void }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setError(null);
+    setToken(value.trim());
+    try {
+      await api('/api/meta');
+      onDone();
+    } catch (e) {
+      setToken(null);
+      setError(e instanceof ApiError && e.status === 401 ? 'That access token is not right.' : (e as Error).message);
+    }
+  };
+  return (
+    <form className="signin" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <div className="ttl">This terminal is protected</div>
+      <input className="in mono" type="password" autoFocus aria-label="Access token" placeholder="Access token" value={value} onChange={(e) => setValue(e.target.value)} />
+      <button className="btn primary" disabled={!value.trim()}>Sign in</button>
+      {error && <div className="down">{error}</div>}
+      <div className="dim">The token is the ATLAS_ACCESS_TOKEN value from the server's .env file.</div>
+    </form>
+  );
 }
 
 function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
