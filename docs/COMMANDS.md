@@ -40,6 +40,7 @@ Functions match before symbols. Errors are reported, never guessed: `AAPL PORT` 
 | `↑` `↓` `Tab` `Enter` `Esc` | Move, complete, run, cancel |
 | `Alt+1` … `Alt+4` | Select the pane commands run in |
 | `Alt+←` / `Alt+→` | Back / forward in the selected pane |
+| `Alt+Enter`, double-click a pane title bar, or the □ button | Maximize the selected pane; `Alt+Enter` or `Esc` restores. `Alt+1..4` switches which pane is maximized |
 | `F1` | Help |
 
 Recent commands are stored on the server and offered first in autocomplete. Pane contents and sizes are saved

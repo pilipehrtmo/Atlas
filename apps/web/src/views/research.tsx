@@ -230,6 +230,7 @@ export function HELP(_: ViewProps) {
         <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Tab</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd></td><td>Navigate, complete, run, cancel suggestions</td></tr>
         <tr><td><kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>4</kbd></td><td>Select pane; commands run in the selected pane</td></tr>
         <tr><td><kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd></td><td>Back / forward in the selected pane</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>Enter</kbd> or double-click a title bar</td><td>Maximize / restore the selected pane (<kbd>Esc</kbd> also restores)</td></tr>
         <tr><td><kbd>F1</kbd></td><td>Help</td></tr>
       </tbody></table>
       {cats.map((c) => (

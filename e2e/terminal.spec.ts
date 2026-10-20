@@ -72,3 +72,18 @@ test('the workspace layout is restored after a reload', async ({ page }) => {
   await page.reload();
   await expect(pane(page, 3).locator('.pane-title')).toHaveText('YC');
 });
+
+test('a pane can be maximized and restored', async ({ page }) => {
+  await pane(page, 2).click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('Alt+Enter');
+  await expect(page.locator('.pane')).toHaveCount(1);
+  await expect(page.locator('.pane .pane-no')).toHaveText('2');
+  await page.keyboard.press('Alt+Digit4');
+  await expect(page.locator('.pane .pane-no')).toHaveText('4');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pane')).toHaveCount(4);
+  await pane(page, 1).locator('.pane-title').dblclick();
+  await expect(page.locator('.pane')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Restore pane' }).click();
+  await expect(page.locator('.pane')).toHaveCount(4);
+});

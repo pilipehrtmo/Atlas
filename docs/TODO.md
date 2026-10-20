@@ -8,7 +8,8 @@ Legend: ✅ works and is tested · 🟡 partial · ❌ not built
 - ✅ Keyboard: type-anywhere, `/`, Ctrl+K, Alt+1..4, Alt+←/→, F1
 - ✅ Design system: dark, dense, mono numerics, provenance tags, loading/empty/error/unavailable states
 - ✅ Configurable product name (`ATLAS_PRODUCT_NAME`)
-- ❌ Pane maximize, more than four panes, named workspaces
+- ✅ Pane maximize (Alt+Enter, double-click title, button; Esc restores)
+- ❌ More than four panes, named workspaces
 
 ## Phase 3: data
 - ✅ Provider abstraction with capability routing, provenance, caching, retries, rate limits, quota guard
