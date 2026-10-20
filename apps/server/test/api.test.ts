@@ -81,7 +81,7 @@ describe('live mode routing', () => {
     const app = buildApp(config, openDb(':memory:'), DataService.fromConfig(config));
     const q = (await app.inject({ url: '/api/security/AAPL/quote' })).json();
     expect(q.status).toBe('unavailable');
-    expect(q.reason).toMatch(/ALPHAVANTAGE_API_KEY/);
+    expect(q.reason).toMatch(/TIINGO_API_KEY/);
     const m = (await app.inject({ url: '/api/macro/CPIAUCSL' })).json();
     expect(m.reason).toMatch(/FRED_API_KEY/);
     expect((await app.inject({ url: '/api/watchlists' })).json()).toEqual([]);

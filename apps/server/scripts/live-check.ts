@@ -9,6 +9,7 @@ import { AlphaVantageProvider } from '../src/providers/alphavantage.js';
 import { FredProvider } from '../src/providers/fred.js';
 import { FrankfurterProvider } from '../src/providers/frankfurter.js';
 import { SecEdgarProvider } from '../src/providers/sec.js';
+import { TiingoProvider } from '../src/providers/tiingo.js';
 import { TreasuryProvider } from '../src/providers/treasury.js';
 
 const ua = process.env.SEC_USER_AGENT || 'Atlas-ci pilipehrtmo@users.noreply.github.com';
@@ -17,6 +18,7 @@ const fx = new FrankfurterProvider(process.env.FRANKFURTER_BASE_URL || 'https://
 const tsy = new TreasuryProvider();
 const fred = new FredProvider(process.env.FRED_API_KEY);
 const av = new AlphaVantageProvider(process.env.ALPHAVANTAGE_API_KEY);
+const tiingo = new TiingoProvider(process.env.TIINGO_API_KEY);
 
 let failures = 0;
 const ok = (name: string, detail: string) => console.log(`PASS ${name}: ${detail}`);
@@ -100,6 +102,14 @@ await check('fx.history', fx.fxHistory('EUR', 'USD', 30), (d) => {
 if (process.env.FRED_API_KEY) {
   await check('fred.CPIAUCSL', fred.macroSeries('CPIAUCSL'), (d) => `${d.title}, ${d.observations.length} obs, last ${JSON.stringify(d.observations.at(-1))}`);
 } else skip('fred', 'FRED_API_KEY not set');
+if (process.env.TIINGO_API_KEY) {
+  await check('tiingo.quote', tiingo.quote('VOO'), (d) => {
+    expect(Date.now() - Date.parse(d.sessionDate!) < 7 * 86_400_000, `stale session ${d.sessionDate}`);
+    return `VOO ${d.price} on ${d.sessionDate} (${d.changePercent}%)`;
+  });
+  await check('tiingo.history', tiingo.history('BRK.B', '1Y'), (d) => { expect(d.length > 240, `${d.length} bars`); return `${d.length} bars`; });
+  await check('tiingo.search', tiingo.search('vanguard s&p'), (d) => { expect(d.some((m) => m.symbol === 'VOO'), 'VOO not found'); return `${d.length} matches`; });
+} else skip('tiingo', 'TIINGO_API_KEY not set');
 if (process.env.ALPHAVANTAGE_API_KEY) {
   await check('alphavantage.quote', av.quote('IBM'), (d) => `IBM ${d.price} on ${d.sessionDate}`);
 } else skip('alphavantage', 'ALPHAVANTAGE_API_KEY not set');

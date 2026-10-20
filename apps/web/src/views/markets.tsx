@@ -13,6 +13,7 @@ interface Overview {
   benchmarks: QuoteRow[];
   movers: { gainers: QuoteRow[]; losers: QuoteRow[]; provenance: Provenance | null } | { unavailable: string };
   sectors: { sector: string; changePercent: string; members: number }[] | { unavailable: string };
+  moversUniverse?: string;
   sectorMethod: string;
   fx: ProviderResult<FxRate[]>;
   curve: ProviderResult<YieldCurve>;
@@ -55,7 +56,7 @@ export function MKT(_: ViewProps) {
         <QuoteTable rows={d.benchmarks} onOpen={open} />
       </Section>
       <div className="grid2">
-        <Section title="Movers" pad={false}>
+        <Section title="Movers" right={d.moversUniverse ? <span className="dim">among {d.moversUniverse}</span> : null} pad={false}>
           {'unavailable' in d.movers ? <Unavailable reason={d.movers.unavailable} /> : (
             <>
               <div className="dim" style={{ padding: '3px 7px' }}>Top gainers</div>

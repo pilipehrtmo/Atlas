@@ -5,6 +5,7 @@ import { DemoProvider } from './demo.js';
 import { FredProvider } from './fred.js';
 import { FrankfurterProvider } from './frankfurter.js';
 import { SecEdgarProvider } from './sec.js';
+import { TiingoProvider } from './tiingo.js';
 import { TreasuryProvider } from './treasury.js';
 import { unavailable, type Capability, type Provider } from './types.js';
 
@@ -18,7 +19,7 @@ export class DataService {
   readonly providers: Provider[];
   readonly demo?: DemoProvider;
 
-  constructor(readonly mode: DataMode, providers: { demo?: DemoProvider; sec?: SecEdgarProvider; fred?: FredProvider; fx?: FrankfurterProvider; treasury?: TreasuryProvider; prices?: AlphaVantageProvider }) {
+  constructor(readonly mode: DataMode, providers: { demo?: DemoProvider; sec?: SecEdgarProvider; fred?: FredProvider; fx?: FrankfurterProvider; treasury?: TreasuryProvider; prices?: AlphaVantageProvider | TiingoProvider }) {
     if (mode === 'demo') {
       const d = providers.demo ?? new DemoProvider();
       this.demo = d;
@@ -28,7 +29,8 @@ export class DataService {
       const { sec, fred, fx, treasury, prices } = providers;
       this.providers = [sec, prices, fred, fx, treasury].filter(Boolean) as Provider[];
       this.routes = {
-        search: sec ?? null, profile: sec ?? null, filings: sec ?? null, fundamentals: sec ?? null,
+        // Tiingo search also covers ETFs, which SEC's company list does not.
+        search: (prices instanceof TiingoProvider ? prices : sec) ?? null, profile: sec ?? null, filings: sec ?? null, fundamentals: sec ?? null,
         quote: prices ?? null, history: prices ?? null, macro: fred ?? null, fx: fx ?? null, rates: treasury ?? null, news: null,
       };
     }
@@ -41,7 +43,7 @@ export class DataService {
       fred: new FredProvider(c.FRED_API_KEY),
       fx: new FrankfurterProvider(c.FRANKFURTER_BASE_URL),
       treasury: new TreasuryProvider(),
-      prices: new AlphaVantageProvider(c.ALPHAVANTAGE_API_KEY),
+      prices: c.TIINGO_API_KEY || !c.ALPHAVANTAGE_API_KEY ? new TiingoProvider(c.TIINGO_API_KEY) : new AlphaVantageProvider(c.ALPHAVANTAGE_API_KEY),
     });
   }
 
