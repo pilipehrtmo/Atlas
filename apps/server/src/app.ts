@@ -1,6 +1,7 @@
 import fastifyStatic from '@fastify/static';
 import { buildLedger, dec, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -52,9 +53,14 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
   });
 
   if (config.ATLAS_ACCESS_TOKEN) {
+    const expected = createHash('sha256').update(`Bearer ${config.ATLAS_ACCESS_TOKEN}`).digest();
     app.addHook('onRequest', async (req, reply) => {
       if (!req.url.startsWith('/api/')) return;
-      if (req.headers.authorization !== `Bearer ${config.ATLAS_ACCESS_TOKEN}`) return reply.status(401).send({ error: 'Unauthorized' });
+      const given = createHash('sha256').update(req.headers.authorization ?? '').digest();
+      if (!timingSafeEqual(given, expected)) {
+        await new Promise((r) => setTimeout(r, 500)); // slows password guessing
+        return reply.status(401).send({ error: 'Access token required' });
+      }
     });
   }
 

@@ -164,3 +164,5 @@ select.in { padding: 0 4px; }
 
 .help h3 { font: 600 var(--fs-s) var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); margin: 12px 0 4px; }
 .help h3:first-child { margin-top: 0; }
+.signin { max-width: 340px; margin: 12vh auto; display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--bg-1); border: 1px solid var(--line); }
+.signin .ttl { font-weight: 600; letter-spacing: 0.04em; }

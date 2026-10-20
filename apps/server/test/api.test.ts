@@ -88,3 +88,15 @@ describe('live mode routing', () => {
     await app.close();
   });
 });
+
+describe('access token', () => {
+  it('rejects API calls without the token and accepts them with it', async () => {
+    const config = loadConfig({ ATLAS_DATA_MODE: 'demo', ATLAS_ACCESS_TOKEN: 's3cret-token' });
+    const app = buildApp(config, openDb(':memory:'), DataService.fromConfig(config));
+    await app.ready();
+    expect((await app.inject({ url: '/api/meta' })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/api/meta', headers: { authorization: 'Bearer wrong' } })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/api/meta', headers: { authorization: 'Bearer s3cret-token' } })).statusCode).toBe(200);
+    await app.close();
+  });
+});

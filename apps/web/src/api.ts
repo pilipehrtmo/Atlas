@@ -14,6 +14,15 @@ const token = () => {
   }
 };
 
+export function setToken(value: string | null) {
+  try {
+    if (value) localStorage.setItem('atlas.token', value);
+    else localStorage.removeItem('atlas.token');
+  } catch {
+    // Storage blocked (private window): the token lasts only until reload.
+  }
+}
+
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['content-type'] = 'application/json';
