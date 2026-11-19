@@ -9,5 +9,5 @@ const data = DataService.fromConfig(config);
 const app = buildApp(config, db, data);
 
 app.listen({ port: config.PORT, host: config.HOST }).then(() => {
-  app.log.info(`${config.ATLAS_PRODUCT_NAME} API on http://${config.HOST}:${config.PORT} (data mode: ${data.mode})`);
+  app.log.info(`${config.ATLAS_PRODUCT_NAME} running on http://${config.HOST}:${config.PORT} (data mode: ${data.mode})`);
 });

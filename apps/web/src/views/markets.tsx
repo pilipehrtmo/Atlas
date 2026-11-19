@@ -2,7 +2,7 @@ import type { Filing, FxRate, MacroSeries, Provenance, ProviderResult, Quote, Yi
 import { useState } from 'react';
 import { api, invalidate, useApi } from '../api';
 import { LineChart } from '../components/Chart';
-import { ErrorBox, Loading, Prov, Result, Section, Unavailable, V } from '../components/common';
+import { ErrorBox, Loading, Prov, Result, Section, sharedProv, TableSource, Unavailable, V } from '../components/common';
 import { fmtCompact, fmtNum, fmtPct, fmtSigned, NA, tone } from '../format';
 import { useTerminal } from '../terminal';
 import type { ViewProps } from './types';
@@ -13,15 +13,18 @@ interface Overview {
   benchmarks: QuoteRow[];
   movers: { gainers: QuoteRow[]; losers: QuoteRow[]; provenance: Provenance | null } | { unavailable: string };
   sectors: { sector: string; changePercent: string; members: number }[] | { unavailable: string };
+  moversUniverse?: string;
   sectorMethod: string;
   fx: ProviderResult<FxRate[]>;
   curve: ProviderResult<YieldCurve>;
 }
 
 function QuoteTable({ rows, onOpen }: { rows: QuoteRow[]; onOpen: (s: string) => void }) {
+  const shared = sharedProv(rows.map((r) => r.result));
   return (
+    <>
     <table className="t">
-      <thead><tr><th>Symbol</th><th>Name</th><th className="num">Last</th><th className="num">Chg</th><th className="num">Chg %</th><th>Source</th></tr></thead>
+      <thead><tr><th>Symbol</th><th>Name</th><th className="num">Last</th><th className="num">Chg</th><th className="num">Chg %</th>{!shared && <th>Source</th>}</tr></thead>
       <tbody>
         {rows.map((r) => (
           <tr key={r.symbol} className="click" onClick={() => onOpen(r.symbol)}>
@@ -32,13 +35,15 @@ function QuoteTable({ rows, onOpen }: { rows: QuoteRow[]; onOpen: (s: string) =>
                 <td className="num">{fmtNum(r.result.data.price)}</td>
                 <td className={`num ${tone(r.result.data.change)}`}><V>{fmtSigned(r.result.data.change)}</V></td>
                 <td className={`num ${tone(r.result.data.changePercent)}`}><V>{fmtPct(r.result.data.changePercent)}</V></td>
-                <td><Prov p={r.result.provenance} staleAfterDays={4} /></td>
+                {!shared && <td><Prov p={r.result.provenance} staleAfterDays={4} /></td>}
               </>
             ) : <td colSpan={4} className="na" title={r.result.reason}>unavailable: {r.result.reason.slice(0, 80)}</td>}
           </tr>
         ))}
       </tbody>
     </table>
+    {shared && <TableSource p={shared} />}
+    </>
   );
 }
 
@@ -55,7 +60,7 @@ export function MKT(_: ViewProps) {
         <QuoteTable rows={d.benchmarks} onOpen={open} />
       </Section>
       <div className="grid2">
-        <Section title="Movers" pad={false}>
+        <Section title="Movers" right={d.moversUniverse ? <span className="dim">among {d.moversUniverse}</span> : null} pad={false}>
           {'unavailable' in d.movers ? <Unavailable reason={d.movers.unavailable} /> : (
             <>
               <div className="dim" style={{ padding: '3px 7px' }}>Top gainers</div>
@@ -243,6 +248,7 @@ export function W(_: ViewProps) {
   const { run } = useTerminal();
   const list = lists.data?.[sel] ?? lists.data?.[0];
   const quotes = useApi<Record<string, ProviderResult<Quote>>>(list && list.symbols.length ? `/api/quotes?symbols=${list.symbols.join(',')}` : null, [list?.symbols.join(',')]);
+  const wlShared = list ? sharedProv(list.symbols.map((s) => quotes.data?.[s])) : null;
   const mutate = async (fn: () => Promise<unknown>) => {
     setErr(null);
     try { await fn(); invalidate('/api/watchlists'); invalidate('/api/quotes'); lists.reload(); } catch (e) { setErr((e as Error).message); }
@@ -271,8 +277,9 @@ export function W(_: ViewProps) {
       </div>
       {err && <div className="notice error">{err}</div>}
       {!list ? <div className="notice">No watchlists yet. Create one with “+ List”.</div> : list.symbols.length === 0 ? <div className="notice">This watchlist is empty. Add a symbol above or press “+ Watch” on a company page.</div> : (
+        <>
         <table className="t">
-          <thead><tr><th>Symbol</th><th className="num">Last</th><th className="num">Chg</th><th className="num">Chg %</th><th className="num">Volume</th><th>Session</th><th>Source</th><th /></tr></thead>
+          <thead><tr><th>Symbol</th><th className="num">Last</th><th className="num">Chg</th><th className="num">Chg %</th><th className="num">Volume</th><th>Session</th>{!wlShared && <th>Source</th>}<th /></tr></thead>
           <tbody>{list.symbols.map((s) => {
             const q = quotes.data?.[s];
             return (
@@ -285,7 +292,7 @@ export function W(_: ViewProps) {
                     <td className={`num ${tone(q.data.changePercent)}`}><V>{fmtPct(q.data.changePercent)}</V></td>
                     <td className="num"><V>{fmtCompact(q.data.volume)}</V></td>
                     <td className="mono dim">{q.data.sessionDate}</td>
-                    <td><Prov p={q.provenance} staleAfterDays={4} /></td>
+                    {!wlShared && <td><Prov p={q.provenance} staleAfterDays={4} /></td>}
                   </>
                 )}
                 <td><button className="icon-btn" title="Remove" onClick={(e) => { e.stopPropagation(); mutate(() => api(`/api/watchlists/${list.id}/items/${s}`, { method: 'DELETE' })); }}>×</button></td>
@@ -293,6 +300,8 @@ export function W(_: ViewProps) {
             );
           })}</tbody>
         </table>
+        {wlShared && <TableSource p={wlShared} />}
+        </>
       )}
     </div>
   );

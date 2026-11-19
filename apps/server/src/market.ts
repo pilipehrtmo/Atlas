@@ -12,6 +12,18 @@ const LIVE_BENCHMARKS = [
   { symbol: 'GLD', name: 'Gold proxy (GLD ETF)' },
 ];
 
+/** Live movers are computed over this fixed list of large US companies, not the whole market, and say so. */
+export const LIVE_LARGE_CAPS = [
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'BRK.B', 'AVGO', 'TSLA', 'JPM',
+  'LLY', 'V', 'XOM', 'UNH', 'MA', 'COST', 'WMT', 'NFLX', 'ORCL', 'AMD',
+];
+/** Sector performance in live mode uses the Select Sector SPDR ETFs as proxies. */
+const LIVE_SECTOR_ETFS: [string, string][] = [
+  ['XLK', 'Technology'], ['XLC', 'Communication Services'], ['XLY', 'Consumer Discretionary'], ['XLP', 'Consumer Staples'],
+  ['XLE', 'Energy'], ['XLF', 'Financials'], ['XLV', 'Health Care'], ['XLI', 'Industrials'], ['XLB', 'Materials'],
+  ['XLRE', 'Real Estate'], ['XLU', 'Utilities'],
+];
+
 export async function marketOverview(data: DataService) {
   const benchmarks = data.mode === 'demo' ? DEMO_INDICES : LIVE_BENCHMARKS;
   const quotes: QuoteRow[] = await Promise.all(
@@ -39,7 +51,22 @@ export async function marketOverview(data: DataService) {
       .map(([sector, v]) => ({ sector, members: v.length, changePercent: v.reduce((a, x) => a.plus(x), new D(0)).div(v.length).toFixed(2) }))
       .sort((a, b) => Number(b.changePercent) - Number(a.changePercent));
   }
-  return { mode: data.mode, benchmarks: quotes, movers, sectors, sectorMethod: 'Equal-weighted average of constituent daily % change', fx, curve };
+  let sectorMethod = 'Equal-weighted average of constituent daily % change';
+  if (data.mode === 'live' && data.routes.quote) {
+    const quoteRows = (list: [string, string][]) => Promise.all(list.map(async ([symbol, name]) => ({ symbol, name, result: await data.call('quote', (p) => p.quote?.(symbol)) })));
+    const [caps, etfs] = await Promise.all([quoteRows(LIVE_LARGE_CAPS.map((s) => [s, s])), quoteRows(LIVE_SECTOR_ETFS)]);
+    const okCaps = caps.filter((r) => r.result.status === 'ok' && r.result.data.changePercent !== null) as (QuoteRow & { result: { status: 'ok'; data: Quote; provenance: Provenance } })[];
+    if (okCaps.length >= 5) {
+      const sorted = [...okCaps].sort((a, b) => Number(b.result.data.changePercent) - Number(a.result.data.changePercent));
+      movers = { gainers: sorted.slice(0, 5), losers: sorted.slice(-5).reverse(), provenance: okCaps[0].result.provenance };
+    } else if (caps[0]?.result.status === 'unavailable') movers = { unavailable: caps[0].result.reason };
+    const okEtfs = etfs.filter((r) => r.result.status === 'ok' && r.result.data.changePercent !== null) as (QuoteRow & { result: { status: 'ok'; data: Quote } })[];
+    if (okEtfs.length) {
+      sectors = okEtfs.map((r) => ({ sector: `${r.name} (${r.symbol})`, members: 1, changePercent: r.result.data.changePercent! })).sort((a, b) => Number(b.changePercent) - Number(a.changePercent));
+      sectorMethod = 'Daily % change of the Select Sector SPDR ETF for each sector (a proxy, not the index itself)';
+    }
+  }
+  return { mode: data.mode, benchmarks: quotes, movers, sectors, sectorMethod, fx, curve, moversUniverse: data.mode === 'live' ? `${LIVE_LARGE_CAPS.length} large US companies` : 'demo universe' };
 }
 
 /** Screener rows. Demo mode computes metrics over the fictional universe; live mode is not implemented yet. */

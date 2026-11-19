@@ -51,3 +51,10 @@ describe('suggest', () => {
     expect(suggest('', { recent: ['MSFT FA'] })[0]).toMatchObject({ value: 'MSFT FA', kind: 'recent' });
   });
 });
+
+import { parseCsv } from '../src/index.js';
+describe('parseCsv', () => {
+  it('reads quoted fields, escaped quotes, CRLF and a BOM', () => {
+    expect(parseCsv('﻿Date,Type,Note\r\n2026-10-20,buy,"a, ""b"""\r\n\r\n')).toEqual([{ date: '2026-10-20', type: 'buy', note: 'a, "b"' }]);
+  });
+});

@@ -1,6 +1,6 @@
 import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api';
+import { api, ApiError, setToken } from './api';
 import { CommandBar, type CommandBarHandle } from './components/CommandBar';
 import { ErrorBox, Loading } from './components/common';
 import { cmdLabel, fnDef, TerminalCtx, toPaneCmd, type Meta, type PaneCmd, type TerminalApi } from './terminal';
@@ -9,9 +9,10 @@ import { VIEWS } from './views';
 interface PaneState { stack: PaneCmd[]; pos: number }
 interface SavedLayout { panes: PaneCmd[]; sizes: Record<string, Layout> }
 
-const DEFAULT_PANES = (mode: Meta['mode']): PaneCmd[] => [
+const DEFAULT_PANES = (meta: Meta): PaneCmd[] => [
   { fn: 'MKT', args: [] },
-  { fn: 'DES', symbol: mode === 'demo' ? 'NOVA' : 'AAPL', args: [] },
+  // First run in live mode with keys missing: open the setup page instead of a page of "unavailable".
+  meta.mode === 'live' && meta.providers.some((p) => !p.configured) ? { fn: 'STATUS', args: [] } : { fn: 'DES', symbol: meta.mode === 'demo' ? 'NOVA' : 'AAPL', args: [] },
   { fn: 'W', args: [] },
   { fn: 'PORT', args: [] },
 ];
@@ -29,14 +30,42 @@ export function App() {
   }, []);
   useEffect(boot, [boot]);
 
+  if (bootError instanceof ApiError && bootError.status === 401) return <SignIn onDone={boot} />;
   if (bootError) return <div style={{ padding: 20, maxWidth: 520 }}><ErrorBox error={bootError} onRetry={boot} /></div>;
   if (!meta || saved === undefined) return <div style={{ padding: 20 }}><Loading /></div>;
   return <Terminal meta={meta} saved={saved} />;
 }
 
+/** Shown when the server requires ATLAS_ACCESS_TOKEN. The token is kept in this browser's local storage. */
+function SignIn({ onDone }: { onDone: () => void }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setError(null);
+    setToken(value.trim());
+    try {
+      await api('/api/meta');
+      onDone();
+    } catch (e) {
+      setToken(null);
+      setError(e instanceof ApiError && e.status === 401 ? 'That access token is not right.' : (e as Error).message);
+    }
+  };
+  return (
+    <form className="signin" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <div className="ttl">This terminal is protected</div>
+      <input className="in mono" type="password" autoFocus aria-label="Access token" placeholder="Access token" value={value} onChange={(e) => setValue(e.target.value)} />
+      <button className="btn primary" disabled={!value.trim()}>Sign in</button>
+      {error && <div className="down">{error}</div>}
+      <div className="dim">The token is the ATLAS_ACCESS_TOKEN value from the server's .env file.</div>
+    </form>
+  );
+}
+
 function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
-  const [panes, setPanes] = useState<PaneState[]>(() => (saved?.panes?.length === 4 ? saved.panes : DEFAULT_PANES(meta.mode)).map((c) => ({ stack: [c], pos: 0 })));
+  const [panes, setPanes] = useState<PaneState[]>(() => (saved?.panes?.length === 4 ? saved.panes : DEFAULT_PANES(meta)).map((c) => ({ stack: [c], pos: 0 })));
   const [active, setActive] = useState(0);
+  const [maximized, setMaximized] = useState<number | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const [now, setNow] = useState(() => new Date());
   const sizes = useRef<Record<string, Layout>>(saved?.sizes ?? {});
@@ -80,7 +109,9 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
       const typing = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); bar.current?.focus(); return; }
       if (e.key === 'F1') { e.preventDefault(); run('HELP'); return; }
-      if (e.altKey && /^Digit[1-4]$/.test(e.code)) { e.preventDefault(); setActive(Number(e.code.slice(5)) - 1); return; }
+      if (e.altKey && /^Digit[1-4]$/.test(e.code)) { e.preventDefault(); const n = Number(e.code.slice(5)) - 1; setActive(n); setMaximized((m) => (m === null ? null : n)); return; }
+      if (e.altKey && e.key === 'Enter') { e.preventDefault(); setMaximized((m) => (m === null ? active : null)); return; }
+      if (e.key === 'Escape' && !typing && maximized !== null) { setMaximized(null); return; }
       if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); nav(active, -1); return; }
       if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); nav(active, 1); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -90,7 +121,7 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [run, nav, active]);
+  }, [run, nav, active, maximized]);
 
   const ctx: TerminalApi = useMemo(() => ({ meta, run, open }), [meta, run, open]);
   const onSizes = (key: string) => (l: Layout) => { sizes.current = { ...sizes.current, [key]: l }; save(panes); };
@@ -102,7 +133,7 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
     const View = VIEWS[cmd.fn];
     return (
       <div className={`pane ${i === active ? 'active' : ''}`} onMouseDown={() => setActive(i)}>
-        <div className="pane-head">
+        <div className="pane-head" onDoubleClick={(e) => { if ((e.target as HTMLElement).closest('button')) return; setMaximized((m) => (m === null ? i : null)); }}>
           <span className="pane-no">{i + 1}</span>
           <button className="icon-btn" title="Back (Alt+←)" disabled={p.pos === 0} onClick={() => nav(i, -1)}>‹</button>
           <button className="icon-btn" title="Forward (Alt+→)" disabled={p.pos >= p.stack.length - 1} onClick={() => nav(i, 1)}>›</button>
@@ -110,6 +141,7 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
           <span className="pane-sub">{def.title}</span>
           <span className="spacer" />
           <button className="icon-btn" title="Show help in this pane" onClick={() => run('HELP', i)}>?</button>
+          <button className="icon-btn" title={maximized === i ? 'Restore (Alt+Enter or Esc)' : 'Maximize (Alt+Enter)'} aria-label={maximized === i ? 'Restore pane' : 'Maximize pane'} onClick={() => setMaximized(maximized === i ? null : i)}>{maximized === i ? '▣' : '□'}</button>
         </div>
         <div className="pane-body">
           {View ? <View key={cmdLabel(cmd)} cmd={cmd} pane={i} /> : <ErrorBox error={new Error(`No view registered for ${cmd.fn}`)} />}
@@ -130,11 +162,20 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
           <span className={`mode ${meta.mode}`} title={meta.mode === 'demo' ? 'All data is synthetic. Fictional companies. Not market data.' : 'Live providers. See STATUS for sources and delays.'}>
             {meta.mode === 'demo' ? 'DEMO · SYNTHETIC DATA' : 'LIVE DATA'}
           </span>
+          {meta.mode === 'live' && (() => {
+            const missing = meta.providers.filter((p) => !p.configured);
+            return missing.length > 0 && (
+              <button className="setup-pill" title={`Not configured: ${missing.map((p) => p.name).join(', ')}. Open STATUS for what each one needs.`} onClick={() => run('STATUS')}>
+                {missing.length} data source{missing.length > 1 ? 's' : ''} need setup
+              </button>
+            );
+          })()}
           <span className="clock" title="Local time / UTC">
             {now.toLocaleTimeString([], { hour12: false })} · {now.toISOString().slice(11, 19)} UTC
           </span>
         </header>
         <main className="workspace">
+          {maximized !== null ? pane(maximized) : (
           <Group orientation="horizontal" defaultLayout={sizes.current.outer} onLayoutChanged={onSizes('outer')}>
             <Panel id="left" minSize="20">
               <Group orientation="vertical" defaultLayout={sizes.current.left} onLayoutChanged={onSizes('left')}>
@@ -152,14 +193,16 @@ function Terminal({ meta, saved }: { meta: Meta; saved: SavedLayout | null }) {
               </Group>
             </Panel>
           </Group>
+          )}
         </main>
         <footer className="statusbar">
           <span><kbd>/</kbd> command</span>
           <span><kbd>Alt</kbd>+<kbd>1-4</kbd> pane</span>
           <span><kbd>Alt</kbd>+<kbd>←</kbd> back</span>
+          <span><kbd>Alt</kbd>+<kbd>Enter</kbd> maximize</span>
           <span><kbd>F1</kbd> help</span>
           <span className="spacer" />
-          <span>Active pane {active + 1}</span>
+          <span>Active pane {active + 1}{maximized !== null ? ' (maximized)' : ''}</span>
           <span>{meta.mode === 'demo' ? 'Demo mode: fictional companies, synthetic prices' : `Prices: ${meta.routes.quote ?? 'none'} · Filings: ${meta.routes.filings ?? 'none'} · Macro: ${meta.routes.macro ?? 'none'}`}</span>
           <span>Information only. Not investment advice.</span>
         </footer>

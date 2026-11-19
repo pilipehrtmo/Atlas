@@ -15,6 +15,12 @@ provider's current pricing and terms before any purchase. Atlas has not signed u
 | Alpha Vantage | quotes, daily history | free key | free tier; premium plans from roughly $50/month | free: 25 req/day | Atlas labels free data **end of day**; real-time US data needs a premium plan and entitlement | personal use; redistribution needs a commercial license | "Data provided by Alpha Vantage" (shown) |
 | Anthropic Claude API | RESEARCH answers with citations | API key | usage-based; Claude Opus 5.5 lists at $4 / $20 per million input/output tokens | account limits | n/a | Atlas sends only the retrieved evidence pack | answers are marked AI-generated |
 
+**Live verification (2026-10-20, GitHub Actions):** Treasury yield curve and ECB/Frankfurter FX (latest and 30-day
+history) pass against the real services. SEC EDGAR refused GitHub's runner IPs with its "Undeclared Automated Tool" and
+"Request Rate Threshold Exceeded" pages, so the SEC adapter has still not been exercised live; run
+`npx tsx scripts/live-check.ts` in `apps/server` from a home or office connection with `SEC_USER_AGENT` set to a real
+contact. FRED and Alpha Vantage need their keys. CI reports an SEC IP block as BLOCKED with a warning, not a failure.
+
 ## Evaluated, not integrated
 
 | Provider | Would add | Cost (verify) | Notes |

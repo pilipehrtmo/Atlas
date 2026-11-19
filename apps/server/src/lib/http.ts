@@ -80,7 +80,9 @@ export async function fetchText(url: string, opts: FetchOptions): Promise<string
       const res = await f(url, { headers: opts.headers, signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000) });
       if (res.ok) return await res.text();
       const retryable = res.status === 429 || res.status >= 500;
-      lastErr = new ProviderError(`${opts.provider} responded ${res.status}`, opts.provider, retryable, res.status);
+      // Block pages (e.g. SEC's "Undeclared Automated Tool") explain the refusal in their <title>.
+      const title = res.headers.get('content-type')?.includes('html') ? (await res.text().catch(() => '')).match(/<title>([^<]{1,160})<\/title>/i)?.[1]?.trim() : undefined;
+      lastErr = new ProviderError(`${opts.provider} responded ${res.status}${title ? `: ${title}` : ''}`, opts.provider, retryable, res.status);
       if (!retryable) throw lastErr;
     } catch (e) {
       if (e instanceof ProviderError && !e.retryable) throw e;

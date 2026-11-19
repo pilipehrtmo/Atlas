@@ -1,14 +1,17 @@
 import fastifyStatic from '@fastify/static';
-import { buildLedger, dec, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
+import { buildLedger, dec, parseCsv, FUNCTIONS, isValidSymbol, LedgerError, valuePortfolio, type HistoryRange, type PriceInput, type Transaction } from '@atlas/core';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { research } from './ai/research.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { marketOverview, screenerUniverse } from './market.js';
+import { portfolioHistory } from './performance.js';
 import type { DataService } from './providers/service.js';
+import { EDITABLE_KEYS, upsertEnv } from './lib/envfile.js';
 import { Repo } from './repo.js';
 
 const symbolParam = z.object({ symbol: z.string().transform((s) => s.toUpperCase()).refine(isValidSymbol, 'Invalid symbol') });
@@ -51,9 +54,14 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
   });
 
   if (config.ATLAS_ACCESS_TOKEN) {
+    const expected = createHash('sha256').update(`Bearer ${config.ATLAS_ACCESS_TOKEN}`).digest();
     app.addHook('onRequest', async (req, reply) => {
       if (!req.url.startsWith('/api/')) return;
-      if (req.headers.authorization !== `Bearer ${config.ATLAS_ACCESS_TOKEN}`) return reply.status(401).send({ error: 'Unauthorized' });
+      const given = createHash('sha256').update(req.headers.authorization ?? '').digest();
+      if (!timingSafeEqual(given, expected)) {
+        await new Promise((r) => setTimeout(r, 500)); // slows password guessing
+        return reply.status(401).send({ error: 'Access token required' });
+      }
     });
   }
 
@@ -69,6 +77,33 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
     functions: FUNCTIONS,
   }));
   app.get('/api/health', async () => ({ ok: true }));
+
+  // ---- Data source settings: lets the owner paste API keys in the UI instead of editing .env.
+  // Allowed from this machine, or from anywhere once ATLAS_ACCESS_TOKEN protects the API.
+  const canEditSettings = (req: { ip: string; headers: Record<string, unknown> }) =>
+    !!config.ATLAS_ACCESS_TOKEN || (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.ip) && !req.headers['x-forwarded-for']);
+  app.get('/api/settings/sources', async (req) => ({
+    editable: canEditSettings(req),
+    envFile: resolve(config.ATLAS_ENV_FILE),
+    set: Object.fromEntries(EDITABLE_KEYS.map((k) => [k, !!config[k]])),
+    secUserAgent: config.SEC_USER_AGENT ?? null,
+  }));
+  app.put('/api/settings/sources', async (req, reply) => {
+    if (!canEditSettings(req)) return reply.status(403).send({ error: 'Settings can be changed only from the computer running Atlas, or with an access token configured.' });
+    const oneLine = z.string().trim().max(200).regex(/^[^\r\n]*$/, 'must be a single line');
+    const body = z.object({
+      TIINGO_API_KEY: oneLine.regex(/^[A-Za-z0-9]*$/, 'should be letters and digits only').optional(),
+      FRED_API_KEY: oneLine.regex(/^[A-Za-z0-9]*$/, 'should be letters and digits only').optional(),
+      SEC_USER_AGENT: oneLine.refine((v) => v === '' || /\S+@\S+\.\S+/.test(v), 'needs a name and a contact email, e.g. "Jane Doe jane@example.com"').optional(),
+      ANTHROPIC_API_KEY: oneLine.optional(),
+    }).strict().parse(req.body);
+    const path = resolve(config.ATLAS_ENV_FILE);
+    const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    writeFileSync(path, upsertEnv(current, body), { mode: 0o600 });
+    for (const [k, v] of Object.entries(body)) (config as Record<string, unknown>)[k] = v === '' ? undefined : v;
+    data.reconfigure(config);
+    return { ok: true, saved: Object.keys(body) };
+  });
 
   // ---- Securities
   app.get('/api/search', async (req) => {
@@ -207,6 +242,21 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
     }
     return { portfolio: pf, transactions, ledger, valuation: valuePortfolio(ledger, prices, pf.baseCurrency, fxToBase), quotes, fxToBase, fxProvenance };
   });
+  app.get('/api/portfolios/:id/history', async (req, reply) => {
+    const pf = repo.getPortfolio(idParam.parse(req.params).id);
+    if (!pf) return reply.status(404).send({ error: 'Portfolio not found' });
+    const q = z.object({
+      range: z.enum(['1M', '3M', '6M', '1Y', '5Y', 'MAX']).default('1Y'),
+      benchmark: z.string().trim().toUpperCase().refine(isValidSymbol, 'Invalid benchmark symbol').optional(),
+    }).parse(req.query);
+    const transactions = repo.listTransactions(pf.id);
+    try {
+      return await portfolioHistory(data, transactions, pf.baseCurrency, q.range, q.benchmark ?? null);
+    } catch (e) {
+      if (e instanceof LedgerError) return reply.status(422).send({ error: e.message });
+      throw e;
+    }
+  });
   app.post('/api/portfolios/:id/transactions', async (req, reply) => {
     const pf = repo.getPortfolio(idParam.parse(req.params).id);
     if (!pf) return reply.status(404).send({ error: 'Portfolio not found' });
@@ -215,6 +265,27 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
     buildLedger([...repo.listTransactions(pf.id), tx]);
     const id = repo.addTransaction(pf.id, tx);
     return reply.status(201).send({ id });
+  });
+  // CSV import: all rows are validated, and checked against the ledger together, before any is saved.
+  app.post('/api/portfolios/:id/import', async (req, reply) => {
+    const pf = repo.getPortfolio(idParam.parse(req.params).id);
+    if (!pf) return reply.status(404).send({ error: 'Portfolio not found' });
+    const { csv } = z.object({ csv: z.string().min(1).max(2_000_000) }).parse(req.body);
+    const rows = parseCsv(csv);
+    if (!rows.length) return reply.status(400).send({ error: 'The file has no data rows. Expected a header: date,type,symbol,quantity,price,fee,amount,currency,note' });
+    if (rows.length > 5000) return reply.status(413).send({ error: 'Import at most 5,000 rows at a time' });
+    const txs: Transaction[] = [];
+    const issues: string[] = [];
+    rows.forEach((r, i) => {
+      const clean = Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== '' && ['date', 'type', 'symbol', 'quantity', 'price', 'fee', 'amount', 'currency', 'note', 'splitratio'].includes(k)).map(([k, v]) => [k === 'splitratio' ? 'splitRatio' : k, k === 'type' ? v.toUpperCase() : v]));
+      const p = txSchema.safeParse(clean);
+      if (p.success) txs.push(p.data as Transaction);
+      else issues.push(`Row ${i + 2}: ${p.error.issues.map((x) => `${x.path.join('.') || 'row'} ${x.message}`).join('; ')}`);
+    });
+    if (issues.length) return reply.status(400).send({ error: `${issues.length} row(s) are invalid; nothing was imported.`, issues: issues.slice(0, 20) });
+    buildLedger([...repo.listTransactions(pf.id), ...txs]);
+    repo.addTransactions(pf.id, txs);
+    return reply.status(201).send({ imported: txs.length });
   });
   app.delete('/api/portfolios/:id/transactions/:txId', async (req, reply) => {
     const { id, txId } = z.object({ id: z.coerce.number().int(), txId: z.coerce.number().int() }).parse(req.params);
@@ -252,7 +323,7 @@ export function buildApp(config: Config, db: Db, data: DataService): FastifyInst
 
   // ---- Static web build (production)
   const webDist = join(process.cwd(), '..', 'web', 'dist');
-  if (process.env.NODE_ENV === 'production' && existsSync(webDist)) {
+  if (existsSync(webDist)) {
     app.register(fastifyStatic, { root: webDist });
     app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/') ? reply.status(404).send({ error: 'Not found' }) : reply.sendFile('index.html')));
   }

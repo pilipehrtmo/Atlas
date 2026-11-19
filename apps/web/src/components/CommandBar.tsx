@@ -52,7 +52,7 @@ export const CommandBar = forwardRef<CommandBarHandle, { onRun: (cmd: string) =>
         ref={input}
         className="cmd-input"
         value={value}
-        placeholder="Type a command or symbol: NOVA, AAPL FA, ECO UNRATE, PORT, HELP"
+        placeholder="Type a command or symbol: AAPL, VOO GP, MSFT FA, ECO UNRATE, PORT, HELP"
         aria-label="Command"
         spellCheck={false}
         autoComplete="off"
